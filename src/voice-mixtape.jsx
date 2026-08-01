@@ -194,6 +194,25 @@ async function storageGet(key, shared = false) {
   }
 }
 
+// Encode the full mixtape JSON into a base64 URL-safe string
+function encodeMixtapePayload(mixtape) {
+  try {
+    const json = JSON.stringify(mixtape);
+    return btoa(unescape(encodeURIComponent(json)));
+  } catch {
+    return null;
+  }
+}
+
+// Decode a base64 mixtape payload back to a mixtape object
+function decodeMixtapePayload(b64) {
+  try {
+    return JSON.parse(decodeURIComponent(escape(atob(b64))));
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  faux QR renderer (decorative, deterministic per code)              */
 /* ------------------------------------------------------------------ */
@@ -640,6 +659,7 @@ export default function VoiceMixtapeApp() {
   const [draft, setDraft] = useState(blankDraft());
   const [clipIndex, setClipIndex] = useState(0);
   const [lastCode, setLastCode] = useState(null);
+  const [lastShareUrl, setLastShareUrl] = useState("");
   const [toast, setToast] = useState(null);
   const [codeInput, setCodeInput] = useState("");
   const [publicMixtape, setPublicMixtape] = useState(null);
@@ -672,15 +692,32 @@ export default function VoiceMixtapeApp() {
 
   // URL deep-link: handle /m/CODE on initial load and browser back/forward
   useEffect(() => {
-    async function handlePath(pathname) {
+    async function handlePath(pathname, hash) {
       const match = pathname.match(/^\/m\/([A-Z0-9]+)$/i);
-      if (match) {
-        await openByCode(match[1]);
-      }
-    }
-    handlePath(window.location.pathname);
+      if (!match) return;
+      const code = match[1].toUpperCase();
 
-    const onPopState = () => handlePath(window.location.pathname);
+      // 1. Try to decode from the URL hash payload first (works cross-device)
+      const hashMatch = hash.match(/[#&]d=([^&]+)/);
+      if (hashMatch) {
+        const mixtape = decodeMixtapePayload(hashMatch[1]);
+        if (mixtape) {
+          mixtape.plays = (mixtape.plays || 0) + 1;
+          setPublicMixtape(mixtape);
+          setPasswordUnlocked(mixtape.privacy !== "password");
+          setPwInput("");
+          setView("public");
+          return;
+        }
+      }
+
+      // 2. Fallback: try localStorage (same-device sharing)
+      await openByCode(code);
+    }
+
+    handlePath(window.location.pathname, window.location.hash);
+
+    const onPopState = () => handlePath(window.location.pathname, window.location.hash);
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
     // eslint-disable-next-line
@@ -711,6 +748,12 @@ export default function VoiceMixtapeApp() {
       await window.storage.set("user-mixtape-ids", JSON.stringify(ids));
       setMixtapes((prev) => [mixtape, ...prev]);
       setLastCode(code);
+      // Build full self-contained share URL with encoded mixtape payload
+      const payload = encodeMixtapePayload(mixtape);
+      const shareUrl = payload
+        ? `https://minitape.grafty.pro/m/${code}#d=${payload}`
+        : `https://minitape.grafty.pro/m/${code}`;
+      setLastShareUrl(shareUrl);
       setView("share");
     } catch (e) {
       flash("Couldn't publish — try again");
@@ -819,6 +862,7 @@ export default function VoiceMixtapeApp() {
             }
           }}
           flash={flash}
+          shareUrl={lastShareUrl}
         />
       )}
       {view === "public" && (
@@ -1709,10 +1753,10 @@ function Builder({ draft, setDraft, onBack, onPublish }) {
 /*  Share screen                                                        */
 /* ------------------------------------------------------------------ */
 
-function ShareScreen({ code, draft, onDashboard, onPreview, flash }) {
+function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
   const [showQr, setShowQr] = useState(false);
   const canvasRef = useRef(null);
-  const link = `https://minitape.grafty.pro/m/${code}`;
+  const link = shareUrl || `https://minitape.grafty.pro/m/${code}`;
 
   useEffect(() => {
     if (showQr) drawQr(canvasRef.current, code);
