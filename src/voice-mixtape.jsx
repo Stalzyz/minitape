@@ -670,6 +670,22 @@ export default function VoiceMixtapeApp() {
     if (view === "dashboard") loadMyMixtapes();
   }, [view, loadMyMixtapes]);
 
+  // URL deep-link: handle /m/CODE on initial load and browser back/forward
+  useEffect(() => {
+    async function handlePath(pathname) {
+      const match = pathname.match(/^\/m\/([A-Z0-9]+)$/i);
+      if (match) {
+        await openByCode(match[1]);
+      }
+    }
+    handlePath(window.location.pathname);
+
+    const onPopState = () => handlePath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line
+  }, []);
+
   function goNewMixtape() {
     playTapeClick("heavy");
     setDraft(blankDraft());
@@ -718,6 +734,10 @@ export default function VoiceMixtapeApp() {
     setPasswordUnlocked(m.privacy !== "password");
     setPwInput("");
     setView("public");
+    // Push clean URL so the link is shareable/bookmarkable
+    if (window.location.pathname !== `/m/${code}`) {
+      window.history.pushState({ code }, "", `/m/${code}`);
+    }
   }
 
   return (
@@ -757,7 +777,7 @@ export default function VoiceMixtapeApp() {
           onSettings={() => { playTapeClick("light"); setView("settings"); }}
           onCopy={(code) => {
             playTapeClick("light");
-            navigator.clipboard?.writeText(`voice.app/m/${code}`).catch(() => {});
+            navigator.clipboard?.writeText(`https://minitape.grafty.pro/m/${code}`).catch(() => {});
             flash("Link copied");
           }}
           codeInput={codeInput}
@@ -812,7 +832,11 @@ export default function VoiceMixtapeApp() {
             if (pwInput === publicMixtape?.password) setPasswordUnlocked(true);
             else flash("Wrong password");
           }}
-          onBack={() => { playTapeClick("light"); setView(user ? "dashboard" : "landing"); }}
+          onBack={() => {
+            playTapeClick("light");
+            window.history.pushState({}, "", "/");
+            setView(user ? "dashboard" : "landing");
+          }}
         />
       )}
       {view === "settings" && (
@@ -1021,7 +1045,7 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
               <div key={m.id} className="flex flex-col items-center justify-center gap-2 px-4 py-3" style={{ borderColor: "var(--border)" }}>
                 <div className="flex items-center justify-center gap-2 min-w-0">
                   <Link2 size={13} className="text-low shrink-0" />
-                  <span className="text-xs font-mono text-hi truncate">{m.title} · voice.app/m/{m.code}</span>
+                  <span className="text-xs font-mono text-hi truncate">{m.title} · minitape.grafty.pro/m/{m.code}</span>
                 </div>
                 <button onClick={() => onCopy(m.code)} className="btn-ghost rounded-full px-3 py-1 text-[10px] font-mono flex items-center gap-1.5 shrink-0">
                   <Copy size={11} /> Copy Link
@@ -1688,7 +1712,7 @@ function Builder({ draft, setDraft, onBack, onPublish }) {
 function ShareScreen({ code, draft, onDashboard, onPreview, flash }) {
   const [showQr, setShowQr] = useState(false);
   const canvasRef = useRef(null);
-  const link = `voice.app/m/${code}`;
+  const link = `https://minitape.grafty.pro/m/${code}`;
 
   useEffect(() => {
     if (showQr) drawQr(canvasRef.current, code);
