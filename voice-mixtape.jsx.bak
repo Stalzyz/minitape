@@ -1,0 +1,1375 @@
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  Mic, Square, Play, Pause, SkipForward, SkipBack, Copy, Share2, QrCode,
+  Trash2, RotateCcw, ChevronRight, Settings as SettingsIcon, Plus, Link2,
+  Lock, Globe, EyeOff, GripVertical, Check, ArrowLeft, LogOut, X,
+  Headphones, Sparkles
+} from "lucide-react";
+
+/* ------------------------------------------------------------------ */
+/*  helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+const COVERS = ["🎙️", "🌙", "☀️", "💌", "🎧", "✨", "🌊", "🔥"];
+const THEMES = ["#E8A548", "#4FAE9B", "#E2654A", "#7C9CE0", "#C97BD1"];
+const MIN_CLIPS = 3;
+const MAX_CLIPS = 5;
+
+function genId() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+function genCode() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+function formatTime(s) {
+  s = Math.max(0, Math.round(s || 0));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+function formatDate(iso) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+function totalDuration(clips) {
+  return (clips || []).reduce((a, c) => a + (c.duration || 0), 0);
+}
+function blankDraft() {
+  return {
+    id: genId(),
+    title: "My Story",
+    cover: COVERS[0],
+    theme: THEMES[0],
+    privacy: "public",
+    password: "",
+    clips: [],
+  };
+}
+
+async function storageGet(key, shared = false) {
+  try {
+    const r = await window.storage.get(key, shared);
+    return r ? r.value : null;
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  faux QR renderer (decorative, deterministic per code)              */
+/* ------------------------------------------------------------------ */
+
+function drawQr(canvas, code) {
+  if (!canvas) return;
+  const size = 21;
+  const px = canvas.width / size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#F3EEE3";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let seed = 7;
+  for (let i = 0; i < code.length; i++) seed = (seed * 31 + code.charCodeAt(i)) >>> 0;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return (seed >>> 16) / 65535;
+  };
+  ctx.fillStyle = "#12151C";
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const inFinder =
+        (x < 7 && y < 7) || (x > size - 8 && y < 7) || (x < 7 && y > size - 8);
+      if (inFinder) continue;
+      if (rand() > 0.56) ctx.fillRect(x * px, y * px, px - 1, px - 1);
+    }
+  }
+  const finder = (fx, fy) => {
+    ctx.fillStyle = "#12151C";
+    ctx.fillRect(fx * px, fy * px, 7 * px, 7 * px);
+    ctx.fillStyle = "#F3EEE3";
+    ctx.fillRect((fx + 1) * px, (fy + 1) * px, 5 * px, 5 * px);
+    ctx.fillStyle = "#12151C";
+    ctx.fillRect((fx + 2) * px, (fy + 2) * px, 3 * px, 3 * px);
+  };
+  finder(0, 0);
+  finder(size - 7, 0);
+  finder(0, size - 7);
+}
+
+/* ------------------------------------------------------------------ */
+/*  small shared UI bits                                               */
+/* ------------------------------------------------------------------ */
+
+function Shell({ children, wide }) {
+  return (
+    <div
+      style={{ background: "var(--ink)", fontFamily: "Inter, sans-serif" }}
+      className="min-h-screen w-full flex items-start justify-center py-10 px-4"
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+        :root{
+          --ink:#12151C; --panel:#1B202B; --panel2:#232939; --border:#2E3444;
+          --paper:#F3EEE3; --amber:#E8A548; --amber-deep:#C8862F; --teal:#4FAE9B;
+          --coral:#E2654A; --text-hi:#F4F1E8; --text-mid:#A6ABC0; --text-low:#6B7086;
+        }
+        .font-display{ font-family:'Fraunces', serif; }
+        .font-mono{ font-family:'IBM Plex Mono', monospace; }
+        .card{ background:var(--panel); border:1px solid var(--border); }
+        .panel2{ background:var(--panel2); border:1px solid var(--border); }
+        .btn-amber{ background:var(--amber); color:var(--ink); font-weight:600; transition:transform .15s ease, background .15s ease; }
+        .btn-amber:hover{ background:var(--amber-deep); transform:translateY(-1px); }
+        .btn-amber:active{ transform:translateY(0); }
+        .btn-ghost{ background:transparent; border:1px solid var(--border); color:var(--text-hi); transition: border-color .15s ease, background .15s ease; }
+        .btn-ghost:hover{ border-color:var(--teal); background:rgba(79,174,155,0.08); }
+        .text-hi{ color:var(--text-hi); }
+        .text-mid{ color:var(--text-mid); }
+        .text-low{ color:var(--text-low); }
+        .accent-amber{ color:var(--amber); }
+        .accent-teal{ color:var(--teal); }
+        .accent-coral{ color:var(--coral); }
+        input[type=text], input[type=email], input[type=password]{
+          background:var(--panel2); border:1px solid var(--border); color:var(--text-hi);
+          outline:none; transition:border-color .15s ease;
+        }
+        input[type=text]:focus, input[type=email]:focus, input[type=password]:focus{ border-color:var(--amber); }
+        .record-btn{
+          width:96px; height:96px; border-radius:9999px; display:flex; align-items:center; justify-content:center;
+          background:var(--coral); box-shadow:0 0 0 0 rgba(226,101,74,0.5);
+        }
+        .record-btn.pulsing{ animation:pulse 1.6s infinite; }
+        @keyframes pulse{
+          0%{ box-shadow:0 0 0 0 rgba(226,101,74,0.55); }
+          70%{ box-shadow:0 0 0 22px rgba(226,101,74,0); }
+          100%{ box-shadow:0 0 0 0 rgba(226,101,74,0); }
+        }
+        .fade-in{ animation:fadeIn .35s ease both; }
+        @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+        .dot{ width:8px; height:8px; border-radius:9999px; }
+        ::-webkit-scrollbar{ width:6px; }
+        ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:9999px; }
+        .drag-row{ cursor:grab; }
+        .drag-row:active{ cursor:grabbing; }
+      `}</style>
+      <div className={`w-full ${wide ? "max-w-md" : "max-w-sm"} fade-in`}>{children}</div>
+    </div>
+  );
+}
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  return (
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-sm font-medium z-50"
+      style={{ background: "var(--paper)", color: "var(--ink)" }}
+    >
+      {toast}
+    </div>
+  );
+}
+
+function ProgressSteps({ step }) {
+  // step: 0 login, 1 recording, 2 publish
+  const steps = ["Login", "Recording", "Publish"];
+  return (
+    <div className="flex items-center gap-3 mb-6">
+      {steps.map((label, i) => (
+        <div key={label} className="flex items-center gap-2">
+          <div
+            className="dot"
+            style={{
+              background: i < step ? "var(--teal)" : i === step ? "var(--amber)" : "transparent",
+              border: i >= step ? "1.5px solid var(--text-low)" : "none",
+            }}
+          />
+          <span className="text-xs font-mono" style={{ color: i === step ? "var(--text-hi)" : "var(--text-low)" }}>
+            {label}
+          </span>
+          {i < steps.length - 1 && <div className="w-4 h-px" style={{ background: "var(--border)" }} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BackBar({ onBack, title }) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <button onClick={onBack} className="btn-ghost rounded-full p-2">
+        <ArrowLeft size={16} />
+      </button>
+      {title && <span className="text-sm text-mid font-mono uppercase tracking-wide">{title}</span>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  main app                                                            */
+/* ------------------------------------------------------------------ */
+
+export default function VoiceMixtapeApp() {
+  const [view, setView] = useState("landing");
+  const [user, setUser] = useState(null);
+  const [mixtapes, setMixtapes] = useState([]);
+  const [loadingList, setLoadingList] = useState(false);
+  const [draft, setDraft] = useState(blankDraft());
+  const [clipIndex, setClipIndex] = useState(0);
+  const [lastCode, setLastCode] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [codeInput, setCodeInput] = useState("");
+  const [publicMixtape, setPublicMixtape] = useState(null);
+  const [passwordUnlocked, setPasswordUnlocked] = useState(true);
+  const [pwInput, setPwInput] = useState("");
+  const [publicError, setPublicError] = useState("");
+
+  function flash(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 1800);
+  }
+
+  const loadMyMixtapes = useCallback(async () => {
+    setLoadingList(true);
+    const idsRaw = await storageGet("user-mixtape-ids");
+    const ids = idsRaw ? JSON.parse(idsRaw) : [];
+    const items = [];
+    for (const id of ids) {
+      const raw = await storageGet(`mixtape:${id}`);
+      if (raw) items.push(JSON.parse(raw));
+    }
+    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    setMixtapes(items);
+    setLoadingList(false);
+  }, []);
+
+  useEffect(() => {
+    if (view === "dashboard") loadMyMixtapes();
+  }, [view, loadMyMixtapes]);
+
+  function goNewMixtape() {
+    setDraft(blankDraft());
+    setClipIndex(0);
+    setView("record");
+  }
+
+  async function publishMixtape(finalDraft) {
+    const code = genCode();
+    const mixtape = {
+      ...finalDraft,
+      code,
+      author: user?.name || "Anonymous",
+      createdAt: new Date().toISOString(),
+      plays: 0,
+    };
+    try {
+      await window.storage.set(`mixtape:${mixtape.id}`, JSON.stringify(mixtape));
+      await window.storage.set(`public:${code}`, JSON.stringify(mixtape), true);
+      const idsRaw = await storageGet("user-mixtape-ids");
+      const ids = idsRaw ? JSON.parse(idsRaw) : [];
+      ids.unshift(mixtape.id);
+      await window.storage.set("user-mixtape-ids", JSON.stringify(ids));
+      setMixtapes((prev) => [mixtape, ...prev]);
+      setLastCode(code);
+      setView("share");
+    } catch (e) {
+      flash("Couldn't publish — try again");
+    }
+  }
+
+  async function openByCode(raw) {
+    const code = (raw || "").trim().toUpperCase();
+    if (!code) return;
+    setPublicError("");
+    const found = await storageGet(`public:${code}`, true);
+    if (!found) {
+      setPublicError("No mixtape found for that code.");
+      return;
+    }
+    const m = JSON.parse(found);
+    m.plays = (m.plays || 0) + 1;
+    window.storage.set(`public:${code}`, JSON.stringify(m), true).catch(() => {});
+    setPublicMixtape(m);
+    setPasswordUnlocked(m.privacy !== "password");
+    setPwInput("");
+    setView("public");
+  }
+
+  return (
+    <>
+      {view === "landing" && (
+        <Landing
+          onLogin={() => setView("login")}
+          codeInput={codeInput}
+          setCodeInput={setCodeInput}
+          onOpenCode={() => openByCode(codeInput)}
+          error={publicError}
+        />
+      )}
+      {view === "login" && (
+        <Login
+          onDone={(u) => {
+            setUser(u);
+            setView("dashboard");
+          }}
+          onBack={() => setView("landing")}
+        />
+      )}
+      {view === "dashboard" && (
+        <Dashboard
+          user={user}
+          mixtapes={mixtapes}
+          loading={loadingList}
+          onNew={goNewMixtape}
+          onOpenMixtape={(m) => {
+            setPublicMixtape(m);
+            setPasswordUnlocked(m.privacy !== "password");
+            setPwInput("");
+            setView("public");
+          }}
+          onSettings={() => setView("settings")}
+          onCopy={(code) => {
+            navigator.clipboard?.writeText(`voice.app/m/${code}`).catch(() => {});
+            flash("Link copied");
+          }}
+          codeInput={codeInput}
+          setCodeInput={setCodeInput}
+          onOpenCode={() => openByCode(codeInput)}
+          error={publicError}
+        />
+      )}
+      {view === "record" && (
+        <RecordFlow
+          draft={draft}
+          setDraft={setDraft}
+          clipIndex={clipIndex}
+          setClipIndex={setClipIndex}
+          onCancel={() => setView("dashboard")}
+          onFinish={() => setView("builder")}
+        />
+      )}
+      {view === "builder" && (
+        <Builder
+          draft={draft}
+          setDraft={setDraft}
+          onBack={() => setView("record")}
+          onPublish={publishMixtape}
+        />
+      )}
+      {view === "share" && (
+        <ShareScreen
+          code={lastCode}
+          draft={draft}
+          onDashboard={() => setView("dashboard")}
+          onPreview={() => {
+            const m = mixtapes.find((mm) => mm.code === lastCode);
+            if (m) {
+              setPublicMixtape(m);
+              setPasswordUnlocked(m.privacy !== "password");
+              setView("public");
+            }
+          }}
+          flash={flash}
+        />
+      )}
+      {view === "public" && (
+        <PublicPlayer
+          mixtape={publicMixtape}
+          passwordUnlocked={passwordUnlocked}
+          pwInput={pwInput}
+          setPwInput={setPwInput}
+          onUnlock={() => {
+            if (pwInput === publicMixtape?.password) setPasswordUnlocked(true);
+            else flash("Wrong password");
+          }}
+          onBack={() => setView(user ? "dashboard" : "landing")}
+        />
+      )}
+      {view === "settings" && (
+        <Settings
+          user={user}
+          setUser={setUser}
+          onBack={() => setView("dashboard")}
+          onSignOut={() => {
+            setUser(null);
+            setView("landing");
+          }}
+        />
+      )}
+      <Toast toast={toast} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Landing                                                             */
+/* ------------------------------------------------------------------ */
+
+function Landing({ onLogin, codeInput, setCodeInput, onOpenCode, error }) {
+  return (
+    <Shell>
+      <div className="card rounded-3xl p-8 text-center">
+        <div
+          className="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center"
+          style={{ background: "var(--amber)" }}
+        >
+          <Mic size={26} color="var(--ink)" />
+        </div>
+        <h1 className="font-display text-hi text-3xl leading-tight mb-3" style={{ fontWeight: 600 }}>
+          Record your voice.
+        </h1>
+        <p className="text-mid text-sm mb-8 leading-relaxed">
+          Create a voice mixtape in under 2 minutes.
+        </p>
+        <button onClick={onLogin} className="btn-amber w-full rounded-full py-3 text-sm">
+          Login
+        </button>
+
+        <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
+          <p className="text-xs text-low font-mono uppercase tracking-wide mb-3">Have a code?</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+              placeholder="6XKQ82"
+              className="flex-1 rounded-full px-4 py-2 text-sm font-mono text-center"
+              maxLength={6}
+            />
+            <button onClick={onOpenCode} className="btn-ghost rounded-full px-4">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          {error && <p className="text-xs mt-2" style={{ color: "var(--coral)" }}>{error}</p>}
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Login                                                                */
+/* ------------------------------------------------------------------ */
+
+function Login({ onDone, onBack }) {
+  const [showEmail, setShowEmail] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+
+  return (
+    <Shell>
+      <BackBar onBack={onBack} />
+      <div className="card rounded-3xl p-8">
+        <h2 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 600 }}>
+          Welcome
+        </h2>
+        <p className="text-mid text-sm mb-6">Sign in to start recording.</p>
+
+        {!showEmail ? (
+          <div className="space-y-3">
+            <button
+              onClick={() => onDone({ name: "You", provider: "google" })}
+              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              Continue with Google
+            </button>
+            <button
+              onClick={() => onDone({ name: "You", provider: "apple" })}
+              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              Continue with Apple
+            </button>
+            <button
+              onClick={() => setShowEmail(true)}
+              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              Continue with Email
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-sm"
+            />
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-sm"
+            />
+            <button
+              disabled={!name.trim()}
+              onClick={() => onDone({ name: name.trim(), provider: "email" })}
+              className="btn-amber w-full rounded-full py-3 text-sm disabled:opacity-40"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard                                                           */
+/* ------------------------------------------------------------------ */
+
+function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error }) {
+  return (
+    <Shell wide>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <p className="text-xs text-low font-mono uppercase tracking-wide">Hey</p>
+          <h1 className="font-display text-hi text-2xl" style={{ fontWeight: 600 }}>
+            {user?.name || "there"}
+          </h1>
+        </div>
+        <button onClick={onSettings} className="btn-ghost rounded-full p-3">
+          <SettingsIcon size={16} />
+        </button>
+      </div>
+
+      <button
+        onClick={onNew}
+        className="btn-amber w-full rounded-2xl py-4 mb-8 flex items-center justify-center gap-2 text-sm"
+      >
+        <Plus size={16} /> New Mixtape
+      </button>
+
+      <div className="mb-8">
+        <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3">My Mixtapes</h3>
+        {loading && <p className="text-mid text-sm">Loading…</p>}
+        {!loading && mixtapes.length === 0 && (
+          <div className="card rounded-2xl p-6 text-center">
+            <p className="text-mid text-sm">Nothing recorded yet. Your first mixtape takes about two minutes.</p>
+          </div>
+        )}
+        <div className="space-y-3">
+          {mixtapes.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onOpenMixtape(m)}
+              className="card w-full rounded-2xl p-4 flex items-center gap-4 text-left hover:brightness-110 transition"
+            >
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
+                style={{ background: m.theme + "22", border: `1px solid ${m.theme}55` }}
+              >
+                {m.cover}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-hi text-sm font-medium truncate">{m.title}</p>
+                <p className="text-low text-xs font-mono mt-0.5">
+                  {m.clips.length} Clips · {formatTime(totalDuration(m.clips))} · {formatDate(m.createdAt)}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs font-mono accent-amber">{m.plays || 0} Plays</p>
+                <p className="text-[10px] text-low mt-1 flex items-center justify-end gap-1">
+                  {m.privacy === "public" && <Globe size={10} />}
+                  {m.privacy === "unlisted" && <EyeOff size={10} />}
+                  {m.privacy === "password" && <Lock size={10} />}
+                  {m.privacy}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mixtapes.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3">Shared Links</h3>
+          <div className="card rounded-2xl divide-y" style={{ borderColor: "var(--border)" }}>
+            {mixtapes.map((m) => (
+              <div key={m.id} className="flex items-center justify-between px-4 py-3" style={{ borderColor: "var(--border)" }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link2 size={13} className="text-low shrink-0" />
+                  <span className="text-xs font-mono text-hi truncate">voice.app/m/{m.code}</span>
+                </div>
+                <button onClick={() => onCopy(m.code)} className="btn-ghost rounded-full p-1.5 shrink-0">
+                  <Copy size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="card rounded-2xl p-5">
+        <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3">Listen with a code</h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            placeholder="6XKQ82"
+            maxLength={6}
+            className="flex-1 rounded-full px-4 py-2 text-sm font-mono text-center"
+          />
+          <button onClick={onOpenCode} className="btn-ghost rounded-full px-4">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        {error && <p className="text-xs mt-2" style={{ color: "var(--coral)" }}>{error}</p>}
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Recording flow                                                      */
+/* ------------------------------------------------------------------ */
+
+function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFinish }) {
+  const [recordState, setRecordState] = useState("idle"); // idle | recording | recorded
+  const [elapsed, setElapsed] = useState(0);
+  const [recError, setRecError] = useState("");
+
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
+  const canvasRef = useRef(null);
+  const timerRef = useRef(null);
+  const autoStopRef = useRef(null);
+  const elapsedRef = useRef(0);
+
+  const currentClip = draft.clips[clipIndex];
+
+  useEffect(() => {
+    // reset per-clip state when navigating to a clip that already has a recording
+    if (currentClip) {
+      setRecordState("recorded");
+      elapsedRef.current = currentClip.duration;
+      setElapsed(currentClip.duration);
+    } else {
+      setRecordState("idle");
+      elapsedRef.current = 0;
+      setElapsed(0);
+    }
+    // eslint-disable-next-line
+  }, [clipIndex]);
+
+  useEffect(() => {
+    return () => {
+      clearInterval(timerRef.current);
+      clearTimeout(autoStopRef.current);
+      cancelAnimationFrame(rafRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
+    };
+  }, []);
+
+  function drawIdleBars() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const barCount = 32;
+    for (let i = 0; i < barCount; i++) {
+      const w = canvas.width / barCount;
+      const bw = w * 0.6;
+      const x = i * w + (w - bw) / 2;
+      ctx.fillStyle = "#2E3444";
+      ctx.fillRect(x, canvas.height / 2 - 2, bw, 4);
+    }
+  }
+  useEffect(() => {
+    drawIdleBars();
+  }, [clipIndex]);
+
+  function drawWaveform() {
+    const canvas = canvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas || !analyser) return;
+    const ctx = canvas.getContext("2d");
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const barCount = 32;
+    const step = Math.max(1, Math.floor(bufferLength / barCount));
+
+    function draw() {
+      rafRef.current = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+      const w = canvas.width,
+        h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const barWidth = (w / barCount) * 0.6;
+      for (let i = 0; i < barCount; i++) {
+        const val = dataArray[i * step] / 255;
+        const barHeight = Math.max(4, val * h);
+        const x = i * (w / barCount) + (w / barCount - barWidth) / 2;
+        ctx.fillStyle = "#E8A548";
+        ctx.fillRect(x, h / 2 - barHeight / 2, barWidth, barHeight);
+      }
+    }
+    draw();
+  }
+
+  async function startRecording() {
+    setRecError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mr.onstop = handleStop;
+      mr.start();
+      setRecordState("recording");
+      elapsedRef.current = 0;
+      setElapsed(0);
+      const startedAt = Date.now();
+      timerRef.current = setInterval(() => {
+        const s = Math.min(60, Math.floor((Date.now() - startedAt) / 1000));
+        elapsedRef.current = s;
+        setElapsed(s);
+      }, 200);
+      autoStopRef.current = setTimeout(() => stopRecording(), 60000);
+
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AC();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 128;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+      drawWaveform();
+    } catch (e) {
+      setRecError("Microphone access is needed to record. Check your browser permissions.");
+    }
+  }
+
+  function stopRecording() {
+    clearInterval(timerRef.current);
+    clearTimeout(autoStopRef.current);
+    cancelAnimationFrame(rafRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
+    drawIdleBars();
+  }
+
+  function handleStop() {
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result;
+      setDraft((prev) => {
+        const clips = [...prev.clips];
+        clips[clipIndex] = {
+          id: clips[clipIndex]?.id || genId(),
+          title: clips[clipIndex]?.title || `Clip ${clipIndex + 1}`,
+          duration: elapsedRef.current || 1,
+          audioDataUrl: dataUrl,
+        };
+        return { ...prev, clips };
+      });
+      setRecordState("recorded");
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  function replay() {
+    if (!currentClip) return;
+    const a = new Audio(currentClip.audioDataUrl);
+    a.play().catch(() => {});
+  }
+
+  function deleteClip() {
+    setDraft((prev) => {
+      const clips = [...prev.clips];
+      clips[clipIndex] = undefined;
+      return { ...prev, clips: clips.filter((c, i) => i !== clipIndex || c !== undefined) };
+    });
+    setRecordState("idle");
+    elapsedRef.current = 0;
+    setElapsed(0);
+    setTimeout(drawIdleBars, 0);
+  }
+
+  function goNext() {
+    setClipIndex((i) => i + 1);
+  }
+
+  function finishHere() {
+    const clips = draft.clips.filter(Boolean);
+    setDraft((prev) => ({ ...prev, clips }));
+    onFinish();
+  }
+
+  const recordedCount = draft.clips.filter(Boolean).length;
+  const canFinish = recordState === "recorded" && recordedCount >= MIN_CLIPS;
+  const canNext = recordState === "recorded" && clipIndex + 1 < MAX_CLIPS;
+  const isLastAllowed = clipIndex + 1 >= MAX_CLIPS;
+
+  return (
+    <Shell>
+      <BackBar onBack={onCancel} title="New Mixtape" />
+      <ProgressSteps step={1} />
+      <div className="card rounded-3xl p-8 text-center">
+        <p className="text-xs text-low font-mono uppercase tracking-wide mb-1">
+          Clip {clipIndex + 1} of {MAX_CLIPS}
+        </p>
+        <p className="text-mid text-xs mb-6">Minimum {MIN_CLIPS} clips</p>
+
+        <canvas ref={canvasRef} width={260} height={70} className="mx-auto mb-6" />
+
+        <div className="flex items-center justify-center mb-4">
+          {recordState !== "recording" ? (
+            <button
+              onClick={startRecording}
+              className="record-btn"
+              style={{ background: "var(--coral)" }}
+              aria-label="Record"
+            >
+              <Mic size={30} color="var(--paper)" />
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              className="record-btn pulsing"
+              style={{ background: "var(--coral)" }}
+              aria-label="Stop"
+            >
+              <Square size={26} color="var(--paper)" fill="var(--paper)" />
+            </button>
+          )}
+        </div>
+
+        <p className="font-mono text-hi text-lg mb-1">{formatTime(elapsed)}</p>
+        <p className="text-low text-xs mb-6">Maximum 60 seconds</p>
+
+        {recError && (
+          <p className="text-xs mb-4" style={{ color: "var(--coral)" }}>
+            {recError}
+          </p>
+        )}
+
+        {recordState === "recorded" && (
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <button onClick={replay} className="btn-ghost rounded-full px-4 py-2 text-xs flex items-center gap-1.5">
+              <RotateCcw size={13} /> Replay
+            </button>
+            <button
+              onClick={deleteClip}
+              className="btn-ghost rounded-full px-4 py-2 text-xs flex items-center gap-1.5"
+              style={{ color: "var(--coral)" }}
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>
+        )}
+
+        {recordState === "recorded" && (
+          <div className="flex flex-col gap-2 mt-4">
+            {canNext && (
+              <button onClick={goNext} className="btn-amber rounded-full py-3 text-sm">
+                Next Clip
+              </button>
+            )}
+            {canFinish && (
+              <button
+                onClick={finishHere}
+                className={isLastAllowed ? "btn-amber rounded-full py-3 text-sm" : "btn-ghost rounded-full py-3 text-sm"}
+              >
+                Finish
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Builder                                                             */
+/* ------------------------------------------------------------------ */
+
+function Builder({ draft, setDraft, onBack, onPublish }) {
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
+  const [publishing, setPublishing] = useState(false);
+
+  function updateClipTitle(i, title) {
+    setDraft((prev) => {
+      const clips = [...prev.clips];
+      clips[i] = { ...clips[i], title };
+      return { ...prev, clips };
+    });
+  }
+  function removeClip(i) {
+    setDraft((prev) => ({ ...prev, clips: prev.clips.filter((_, idx) => idx !== i) }));
+  }
+  function playClip(clip) {
+    const a = new Audio(clip.audioDataUrl);
+    a.play().catch(() => {});
+  }
+  function handleDragEnd() {
+    const from = dragItem.current,
+      to = dragOverItem.current;
+    if (from === null || to === null || from === to) return;
+    setDraft((prev) => {
+      const list = [...prev.clips];
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
+      return { ...prev, clips: list };
+    });
+    dragItem.current = null;
+    dragOverItem.current = null;
+  }
+
+  async function handlePublish() {
+    setPublishing(true);
+    await onPublish(draft);
+    setPublishing(false);
+  }
+
+  return (
+    <Shell wide>
+      <BackBar onBack={onBack} title="Arrange & Publish" />
+      <ProgressSteps step={2} />
+
+      <div className="card rounded-3xl p-6 mb-4">
+        <input
+          type="text"
+          value={draft.title}
+          onChange={(e) => setDraft((p) => ({ ...p, title: e.target.value }))}
+          className="w-full bg-transparent font-display text-hi text-2xl mb-1 outline-none"
+          style={{ fontWeight: 600 }}
+          placeholder="My Story"
+        />
+        <p className="text-low text-xs font-mono mb-5">
+          {draft.clips.length} Clips · {formatTime(totalDuration(draft.clips))}
+        </p>
+
+        <div className="space-y-2 mb-2">
+          {draft.clips.map((clip, i) => (
+            <div
+              key={clip.id}
+              draggable
+              onDragStart={() => (dragItem.current = i)}
+              onDragEnter={() => (dragOverItem.current = i)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => e.preventDefault()}
+              className="drag-row panel2 rounded-xl p-3 flex items-center gap-3"
+            >
+              <GripVertical size={14} className="text-low shrink-0" />
+              <button onClick={() => playClip(clip)} className="shrink-0 rounded-full p-1.5" style={{ background: "var(--amber)" }}>
+                <Play size={11} color="var(--ink)" fill="var(--ink)" />
+              </button>
+              <input
+                type="text"
+                value={clip.title}
+                onChange={(e) => updateClipTitle(i, e.target.value)}
+                className="flex-1 bg-transparent text-hi text-sm outline-none min-w-0"
+              />
+              <span className="text-low text-xs font-mono shrink-0">{formatTime(clip.duration)}</span>
+              <button onClick={() => removeClip(i)} className="shrink-0 text-low hover:text-hi">
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card rounded-3xl p-6 mb-4 space-y-5">
+        <div>
+          <p className="text-xs text-low font-mono uppercase tracking-wide mb-2">Cover</p>
+          <div className="flex gap-2 flex-wrap">
+            {COVERS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setDraft((p) => ({ ...p, cover: c }))}
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-base"
+                style={{
+                  background: draft.cover === c ? "var(--amber)33" : "var(--panel2)",
+                  border: draft.cover === c ? "1px solid var(--amber)" : "1px solid var(--border)",
+                }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs text-low font-mono uppercase tracking-wide mb-2">Theme Color</p>
+          <div className="flex gap-2">
+            {THEMES.map((t) => (
+              <button
+                key={t}
+                onClick={() => setDraft((p) => ({ ...p, theme: t }))}
+                className="w-8 h-8 rounded-full"
+                style={{
+                  background: t,
+                  outline: draft.theme === t ? "2px solid var(--text-hi)" : "none",
+                  outlineOffset: "2px",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs text-low font-mono uppercase tracking-wide mb-2">Privacy</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: "public", label: "Public", icon: Globe },
+              { key: "unlisted", label: "Unlisted", icon: EyeOff },
+              { key: "password", label: "Password", icon: Lock },
+            ].map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setDraft((p) => ({ ...p, privacy: key }))}
+                className="rounded-xl py-2.5 flex flex-col items-center gap-1 text-xs"
+                style={{
+                  background: draft.privacy === key ? "var(--amber)22" : "var(--panel2)",
+                  border: draft.privacy === key ? "1px solid var(--amber)" : "1px solid var(--border)",
+                  color: draft.privacy === key ? "var(--text-hi)" : "var(--text-mid)",
+                }}
+              >
+                <Icon size={13} />
+                {label}
+              </button>
+            ))}
+          </div>
+          {draft.privacy === "password" && (
+            <input
+              type="password"
+              placeholder="Set a password"
+              value={draft.password}
+              onChange={(e) => setDraft((p) => ({ ...p, password: e.target.value }))}
+              className="w-full rounded-xl px-4 py-2.5 text-sm mt-3"
+            />
+          )}
+        </div>
+      </div>
+
+      <button
+        onClick={handlePublish}
+        disabled={draft.clips.length < 1 || !draft.title.trim() || publishing}
+        className="btn-amber w-full rounded-full py-3.5 text-sm disabled:opacity-40"
+      >
+        {publishing ? "Publishing…" : "Publish"}
+      </button>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Share screen                                                        */
+/* ------------------------------------------------------------------ */
+
+function ShareScreen({ code, draft, onDashboard, onPreview, flash }) {
+  const [showQr, setShowQr] = useState(false);
+  const canvasRef = useRef(null);
+  const link = `voice.app/m/${code}`;
+
+  useEffect(() => {
+    if (showQr) drawQr(canvasRef.current, code);
+  }, [showQr, code]);
+
+  function copy() {
+    navigator.clipboard?.writeText(link).catch(() => {});
+    flash("Link copied");
+  }
+  async function share() {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: draft.title, text: `Listen to "${draft.title}"`, url: `https://${link}` });
+      } catch {}
+    } else {
+      copy();
+    }
+  }
+
+  return (
+    <Shell>
+      <div className="card rounded-3xl p-8 text-center">
+        <div
+          className="w-14 h-14 rounded-full mx-auto mb-5 flex items-center justify-center text-2xl"
+          style={{ background: draft.theme + "22", border: `1px solid ${draft.theme}` }}
+        >
+          {draft.cover}
+        </div>
+        <h2 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 600 }}>
+          Published
+        </h2>
+        <p className="text-mid text-sm mb-6">Your mixtape is live. Share the link below.</p>
+
+        <div className="panel2 rounded-2xl py-4 px-4 mb-4">
+          <p className="font-mono text-hi text-base tracking-wide">{link}</p>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <button onClick={copy} className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5">
+            <Copy size={13} /> Copy
+          </button>
+          <button onClick={share} className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5">
+            <Share2 size={13} /> Share
+          </button>
+          <button onClick={() => setShowQr((v) => !v)} className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5">
+            <QrCode size={13} /> QR
+          </button>
+        </div>
+
+        {showQr && (
+          <div className="flex flex-col items-center mb-4">
+            <canvas ref={canvasRef} width={168} height={168} className="rounded-xl" />
+            <p className="text-low text-[10px] font-mono mt-2 uppercase tracking-wide">QR code</p>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 mt-2">
+          <button onClick={onPreview} className="btn-amber rounded-full py-3 text-sm">
+            Preview Public Page
+          </button>
+          <button onClick={onDashboard} className="btn-ghost rounded-full py-3 text-sm">
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public player                                                       */
+/* ------------------------------------------------------------------ */
+
+function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack }) {
+  const [playingIndex, setPlayingIndex] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    setPlayingIndex(null);
+    setIsPlaying(false);
+    setCurrentTime(0);
+  }, [mixtape?.code]);
+
+  if (!mixtape) {
+    return (
+      <Shell>
+        <BackBar onBack={onBack} />
+        <div className="card rounded-3xl p-8 text-center text-mid text-sm">Mixtape not found.</div>
+      </Shell>
+    );
+  }
+
+  const clips = mixtape.clips || [];
+  const clip = playingIndex !== null ? clips[playingIndex] : null;
+
+  function playFrom(i) {
+    setPlayingIndex(i);
+    setIsPlaying(true);
+  }
+  function togglePlayAll() {
+    if (playingIndex === null) playFrom(0);
+    else setIsPlaying((p) => !p);
+  }
+  function onEnded() {
+    if (playingIndex !== null && playingIndex + 1 < clips.length) {
+      setPlayingIndex(playingIndex + 1);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(false);
+    }
+  }
+  function seek(e) {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = pct * audio.duration;
+  }
+
+  const progressPct = clip && audioRef.current?.duration ? (currentTime / audioRef.current.duration) * 100 : 0;
+
+  if (!passwordUnlocked) {
+    return (
+      <Shell>
+        <BackBar onBack={onBack} />
+        <div className="card rounded-3xl p-8 text-center">
+          <Lock size={22} className="mx-auto mb-4 text-mid" />
+          <h2 className="font-display text-hi text-xl mb-2" style={{ fontWeight: 600 }}>
+            Password protected
+          </h2>
+          <p className="text-mid text-xs mb-5">This mixtape needs a password to play.</p>
+          <input
+            type="password"
+            value={pwInput}
+            onChange={(e) => setPwInput(e.target.value)}
+            placeholder="Enter password"
+            className="w-full rounded-xl px-4 py-2.5 text-sm mb-3 text-center"
+          />
+          <button onClick={onUnlock} className="btn-amber w-full rounded-full py-3 text-sm">
+            Unlock
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell wide>
+      <BackBar onBack={onBack} />
+      <div className="card rounded-3xl p-8">
+        <div
+          className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-2xl"
+          style={{ background: mixtape.theme + "22", border: `1px solid ${mixtape.theme}` }}
+        >
+          {mixtape.cover}
+        </div>
+        <h1 className="font-display text-hi text-2xl text-center mb-1" style={{ fontWeight: 600 }}>
+          {mixtape.title}
+        </h1>
+        <p className="text-mid text-sm text-center mb-5">by {mixtape.author}</p>
+
+        <div className="flex items-center justify-center gap-4 text-[11px] font-mono text-low mb-6">
+          <span>{clips.length} Clips</span>
+          <span>·</span>
+          <span>{formatTime(totalDuration(clips))}</span>
+          <span>·</span>
+          <span>{formatDate(mixtape.createdAt)}</span>
+          <span>·</span>
+          <span style={{ color: mixtape.theme }}>{mixtape.plays || 0} Plays</span>
+        </div>
+
+        {/* player */}
+        <div className="panel2 rounded-2xl p-5 mb-6">
+          <audio
+            ref={audioRef}
+            src={clip?.audioDataUrl}
+            autoPlay={isPlaying}
+            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+            onEnded={onEnded}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+          />
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => playingIndex > 0 && playFrom(playingIndex - 1)}
+              disabled={!playingIndex}
+              className="text-mid disabled:opacity-30"
+            >
+              <SkipBack size={18} />
+            </button>
+            <button
+              onClick={togglePlayAll}
+              className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{ background: mixtape.theme }}
+            >
+              {isPlaying ? (
+                <Pause size={22} color="var(--ink)" fill="var(--ink)" />
+              ) : (
+                <Play size={22} color="var(--ink)" fill="var(--ink)" style={{ marginLeft: 2 }} />
+              )}
+            </button>
+            <button
+              onClick={() => playingIndex !== null && playingIndex + 1 < clips.length && playFrom(playingIndex + 1)}
+              disabled={playingIndex === null || playingIndex + 1 >= clips.length}
+              className="text-mid disabled:opacity-30"
+            >
+              <SkipForward size={18} />
+            </button>
+          </div>
+
+          <div onClick={seek} className="h-1.5 rounded-full mb-2 cursor-pointer" style={{ background: "var(--border)" }}>
+            <div
+              className="h-1.5 rounded-full"
+              style={{ width: `${progressPct}%`, background: mixtape.theme, transition: "width .1s linear" }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] font-mono text-low">
+            <span>{formatTime(currentTime)}</span>
+            <span>{clip ? formatTime(clip.duration) : formatTime(totalDuration(clips))}</span>
+          </div>
+          {clip && (
+            <p className="text-center text-hi text-xs mt-3">
+              {playingIndex + 1}. {clip.title}
+            </p>
+          )}
+        </div>
+
+        {/* clip list */}
+        <div className="space-y-2">
+          {clips.map((c, i) => (
+            <button
+              key={c.id}
+              onClick={() => playFrom(i)}
+              className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left"
+              style={{
+                background: playingIndex === i ? mixtape.theme + "1a" : "var(--panel2)",
+                border: playingIndex === i ? `1px solid ${mixtape.theme}` : "1px solid var(--border)",
+              }}
+            >
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: playingIndex === i && isPlaying ? mixtape.theme : "var(--border)" }}
+              >
+                {playingIndex === i && isPlaying ? (
+                  <Pause size={11} color="var(--ink)" fill="var(--ink)" />
+                ) : (
+                  <Play size={11} color={playingIndex === i ? "var(--ink)" : "var(--text-mid)"} fill={playingIndex === i ? "var(--ink)" : "none"} />
+                )}
+              </div>
+              <span className="flex-1 text-sm text-hi truncate">{c.title}</span>
+              <span className="text-xs font-mono text-low shrink-0">{formatTime(c.duration)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings                                                            */
+/* ------------------------------------------------------------------ */
+
+function Settings({ user, setUser, onBack, onSignOut }) {
+  const [name, setName] = useState(user?.name || "");
+  return (
+    <Shell>
+      <BackBar onBack={onBack} title="Settings" />
+      <div className="card rounded-3xl p-8">
+        <p className="text-xs text-low font-mono uppercase tracking-wide mb-2">Display name</p>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => setUser((u) => ({ ...u, name: name.trim() || "You" }))}
+          className="w-full rounded-xl px-4 py-3 text-sm mb-8"
+        />
+        <button
+          onClick={onSignOut}
+          className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
+          style={{ color: "var(--coral)" }}
+        >
+          <LogOut size={14} /> Sign out
+        </button>
+      </div>
+    </Shell>
+  );
+}
