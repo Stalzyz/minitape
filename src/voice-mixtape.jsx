@@ -748,6 +748,20 @@ export default function VoiceMixtapeApp() {
       await window.storage.set("user-mixtape-ids", JSON.stringify(ids));
       setMixtapes((prev) => [mixtape, ...prev]);
       setLastCode(code);
+
+      // Save to VPS static storage backend API
+      try {
+        await fetch("/api/mixtape", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(mixtape),
+        });
+      } catch (err) {
+        console.error("Failed to sync with server:", err);
+      }
+
       // Build full self-contained share URL with encoded mixtape payload
       const payload = encodeMixtapePayload(mixtape);
       const shareUrl = payload
@@ -765,12 +779,33 @@ export default function VoiceMixtapeApp() {
     if (!code) return;
     playTapeClick("heavy");
     setPublicError("");
+
+    let m;
+    // 1. Try local storage first
     const found = await storageGet(`public:${code}`, true);
-    if (!found) {
+    if (found) {
+      try {
+        m = JSON.parse(found);
+      } catch (e) {}
+    }
+
+    // 2. Fallback: Fetch from VPS shares folder
+    if (!m) {
+      try {
+        const response = await fetch(`/shares/${code}.json`);
+        if (response.ok) {
+          m = await response.json();
+        }
+      } catch (e) {
+        console.error("Error fetching mixtape from VPS:", e);
+      }
+    }
+
+    if (!m) {
       setPublicError("No mixtape found for that code.");
       return;
     }
-    const m = JSON.parse(found);
+
     m.plays = (m.plays || 0) + 1;
     window.storage.set(`public:${code}`, JSON.stringify(m), true).catch(() => {});
     setPublicMixtape(m);
@@ -908,6 +943,10 @@ function Landing({ onLogin, codeInput, setCodeInput, onOpenCode, error }) {
   return (
     <Shell>
       <div className="card rounded-3xl p-8 text-center">
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <img src="/favicon.svg" className="w-8 h-8 object-contain" alt="MInitape Logo" />
+          <span className="font-display text-hi text-xl font-bold tracking-wide">MInitape</span>
+        </div>
         <CassetteTape
           title="MINITAPE"
           themeColor="var(--amber)"
