@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Mic, Square, Play, Pause, SkipForward, SkipBack, Copy, Share2, QrCode,
   Trash2, RotateCcw, ChevronRight, Settings as SettingsIcon, Plus, Link2,
-  Lock, Globe, EyeOff, GripVertical, Check, ArrowLeft, LogOut, X,
+  Lock, Globe, EyeOff, GripVertical, Check, ArrowLeft, LogOut, X, Edit,
   Headphones, Sparkles, Heart, Sun, Moon, Music, Smile, Disc
 } from "lucide-react";
 
@@ -830,6 +830,7 @@ export default function VoiceMixtapeApp() {
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
   const [prevView, setPrevView] = useState("landing");
+  const [editingCode, setEditingCode] = useState(null);
 
   function flash(msg) {
     setToast(msg);
@@ -913,24 +914,50 @@ export default function VoiceMixtapeApp() {
     setView("record");
   }
 
+  function handleEditMixtape(mixtape) {
+    playTapeClick("heavy");
+    setEditingCode(mixtape.code);
+    setDraft({
+      id: mixtape.id,
+      title: mixtape.title,
+      cover: mixtape.cover || COVERS[0],
+      theme: mixtape.theme || THEMES[0],
+      stickerFont: mixtape.stickerFont || "Felt-Tip",
+      privacy: mixtape.privacy || "public",
+      password: mixtape.password || "",
+      description: mixtape.description || "",
+      clips: mixtape.clips || [],
+    });
+    setClipIndex(mixtape.clips.length);
+    setView("builder");
+  }
+
   async function publishMixtape(finalDraft) {
-    const code = genCode();
+    const code = editingCode || genCode();
     const mixtape = {
       ...finalDraft,
       code,
       author: user?.name || "Anonymous",
-      createdAt: new Date().toISOString(),
-      plays: 0,
+      createdAt: finalDraft.createdAt || new Date().toISOString(),
+      plays: finalDraft.plays || 0,
     };
     try {
       await storageSet(`mixtape:${mixtape.id}`, JSON.stringify(mixtape));
       await storageSet(`public:${code}`, JSON.stringify(mixtape), true);
+      
       const idsRaw = await storageGet("user-mixtape-ids");
       const ids = idsRaw ? JSON.parse(idsRaw) : [];
-      ids.unshift(mixtape.id);
-      await storageSet("user-mixtape-ids", JSON.stringify(ids));
-      setMixtapes((prev) => [mixtape, ...prev]);
+      if (!ids.includes(mixtape.id)) {
+        ids.unshift(mixtape.id);
+        await storageSet("user-mixtape-ids", JSON.stringify(ids));
+      }
+      
+      setMixtapes((prev) => {
+        const filtered = prev.filter((m) => m.id !== mixtape.id);
+        return [mixtape, ...filtered];
+      });
       setLastCode(code);
+      setEditingCode(null);
 
       // Save to VPS static storage backend API
       try {
@@ -1109,6 +1136,20 @@ export default function VoiceMixtapeApp() {
             setView(user ? "dashboard" : "landing");
           }}
           autoPlayOnMount={autoPlayPublic}
+          user={user}
+          onEdit={() => handleEditMixtape(publicMixtape)}
+          onImport={async () => {
+            await storageSet(`mixtape:${publicMixtape.id}`, JSON.stringify(publicMixtape));
+            const idsRaw = await storageGet("user-mixtape-ids");
+            const ids = idsRaw ? JSON.parse(idsRaw) : [];
+            if (!ids.includes(publicMixtape.id)) {
+              ids.unshift(publicMixtape.id);
+              await storageSet("user-mixtape-ids", JSON.stringify(ids));
+            }
+            loadMyMixtapes();
+            flash("Imported to Dashboard!");
+          }}
+          isImported={mixtapes.some((m) => m.id === publicMixtape?.id)}
         />
       )}
       {view === "public-intro" && (
@@ -2327,7 +2368,7 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
 /*  Public player                                                       */
 /* ------------------------------------------------------------------ */
 
-function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack, autoPlayOnMount }) {
+function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack, autoPlayOnMount, user, onEdit, onImport, isImported }) {
   const [playingIndex, setPlayingIndex] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -2589,6 +2630,37 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
             );
           })}
         </div>
+
+        {/* Creator / Visitor Control Actions */}
+        {user && (
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={onEdit}
+              className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+            >
+              <Edit size={12} /> Edit Tape
+            </button>
+            {!isImported && (
+              <button
+                onClick={onImport}
+                className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+              >
+                <Plus size={12} /> Import
+              </button>
+            )}
+          </div>
+        )}
+        {!user && !isImported && (
+          <div className="mt-4">
+            <button
+              onClick={onImport}
+              className="btn-ghost w-full rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+            >
+              <Plus size={12} /> Import to Dashboard
+            </button>
+          </div>
+        )}
+
         {/* J-Card Sleeve */}
         <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--border)" }}>
           <button
