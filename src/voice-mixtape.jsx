@@ -2579,7 +2579,7 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
   async function share() {
     if (navigator.share) {
       try {
-        await navigator.share({ title: draft.title, text: `Listen to "${draft.title}"`, url: `https://${link}` });
+        await navigator.share({ title: draft.title, text: `Listen to "${draft.title}"`, url: link });
       } catch {}
     } else {
       copy();
