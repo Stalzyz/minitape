@@ -3425,14 +3425,6 @@ function AdminPanel({ user, onBack, flash }) {
                       <p className="text-[10px] text-low font-mono mt-1">Code: <span className="text-hi">{m.code}</span> · {m.plays || 0} Plays</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <a
-                        href={`/m/${m.code}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-ghost rounded-full px-2.5 py-1 text-[10px] font-mono flex items-center justify-center"
-                      >
-                        Open
-                      </a>
                       <button
                         onClick={() => handleDeleteMixtape(m.code)}
                         className="btn-ghost rounded-full px-2.5 py-1 text-[10px] font-mono shrink-0"
