@@ -405,8 +405,54 @@ function Shell({ children, wide }) {
           perspective: 1000px;
           margin-bottom: 1.5rem;
           width: 100%;
-          max-width: 300px;
+          max-width: 280px;
           aspect-ratio: 300 / 190;
+        }
+
+        /* Strict mobile viewport optimizations to avoid scrolling and overflow */
+        @media (max-width: 480px) {
+          .cassette-flip-container {
+            max-width: 210px !important;
+            margin-bottom: 1rem !important;
+          }
+          .vu-meter {
+            height: 110px !important;
+            width: 8px !important;
+            gap: 1.5px !important;
+          }
+          .card {
+            padding: 1.25rem !important;
+            border-radius: 1.5rem !important;
+          }
+          .min-h-screen {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+          }
+          .record-btn {
+            width: 76px !important;
+            height: 76px !important;
+          }
+          .btn-amber, .btn-ghost {
+            padding-top: 0.65rem !important;
+            padding-bottom: 0.65rem !important;
+          }
+          .text-3xl {
+            font-size: 1.5rem !important;
+            line-height: 1.875rem !important;
+          }
+          .text-2xl {
+            font-size: 1.25rem !important;
+            line-height: 1.625rem !important;
+          }
+          .mb-8 {
+            margin-bottom: 1.25rem !important;
+          }
+          .mb-6 {
+            margin-bottom: 1rem !important;
+          }
+          .mt-8 {
+            margin-top: 1.25rem !important;
+          }
         }
         .cassette-flipper {
           position: relative;
@@ -1514,7 +1560,7 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
         </p>
         <p className="text-mid text-xs mb-6">Minimum {MIN_CLIPS} clips</p>
 
-        <div className="flex items-center justify-center gap-4 mb-2">
+        <div className="flex items-center justify-center gap-2 mb-2">
           <div className="vu-meter" id="vu-left" ref={vuLeftContainerRef}>
             {[...Array(10)].map((_, i) => (
               <div key={i} className="vu-segment" />
@@ -1861,8 +1907,10 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
         </h2>
         <p className="text-mid text-sm mb-6">Your mixtape is live. Share the link below.</p>
 
-        <div className="panel2 rounded-2xl py-4 px-4 mb-4">
-          <p className="font-mono text-hi text-base tracking-wide">{link}</p>
+        <div className="panel2 rounded-2xl py-3 px-3 mb-4" style={{ wordBreak: "break-all", overflowWrap: "anywhere" }}>
+          <p className="font-mono text-hi text-sm tracking-wide text-center">
+            https://minitape.grafty.pro/m/{code}
+          </p>
         </div>
 
         <div className="flex gap-2 mb-4">
