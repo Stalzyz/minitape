@@ -202,6 +202,17 @@ function applyWowFlutter(audioElement) {
     audioElement.__wowFlutterInitialized = true;
     const AC = window.AudioContext || window.webkitAudioContext;
     const ctx = new AC();
+    
+    // Automatically resume suspended AudioContext on play events to unmute audio output
+    const resumeCtx = () => {
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+    };
+    audioElement.addEventListener("play", resumeCtx);
+    audioElement.addEventListener("playing", resumeCtx);
+    audioElement.addEventListener("canplay", resumeCtx);
+
     const source = ctx.createMediaElementSource(audioElement);
     const delayNode = ctx.createDelay();
     delayNode.delayTime.value = 0.005; // 5ms baseline delay
@@ -2692,16 +2703,52 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
     playTapeClick("heavy");
     setPlayingIndex(i);
     setIsPlaying(true);
+
+    // Synchronously set src and call play to bypass iOS Safari autoplay restrictions
+    const audio = audioRef.current;
+    if (audio) {
+      const targetClip = clips[i];
+      if (targetClip) {
+        audio.src = targetClip.audioDataUrl;
+        audio.load();
+        
+        // Ensure Wow & Flutter filter is initialized
+        applyWowFlutter(audio);
+
+        // Resume AudioContext synchronously inside user interaction callback
+        if (audio.__audioCtx) {
+          audio.__audioCtx.resume().catch(() => {});
+        }
+
+        audio.play().catch((err) => {
+          console.warn("Sync play failed:", err);
+        });
+      }
+    }
   }
   function togglePlayAll() {
     playTapeClick("heavy");
-    if (playingIndex === null) playFrom(0);
-    else setIsPlaying((p) => !p);
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (playingIndex === null) {
+      playFrom(0);
+    } else {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        if (audio.__audioCtx) {
+          audio.__audioCtx.resume().catch(() => {});
+        }
+        audio.play().catch(() => {});
+        setIsPlaying(true);
+      }
+    }
   }
   function onEnded() {
     if (playingIndex !== null && playingIndex + 1 < clips.length) {
-      setPlayingIndex(playingIndex + 1);
-      setIsPlaying(true);
+      playFrom(playingIndex + 1);
     } else {
       setIsPlaying(false);
     }
