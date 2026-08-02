@@ -61,6 +61,30 @@ const FONTS = ["Felt-Tip", "Retro Typewriter", "Ink Marker", "Clean Script"];
 const MIN_CLIPS = 3;
 const MAX_CLIPS = 5;
 
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return null;
+  }
+}
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+function safeRemoveItem(key) {
+  try {
+    localStorage.removeItem(key);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
@@ -118,6 +142,7 @@ function blankDraft() {
 function playTapeClick(type = "heavy") {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
     const ctx = new AC();
     const now = ctx.currentTime;
     
@@ -227,6 +252,7 @@ function applyWowFlutter(audioElement) {
   try {
     audioElement.__wowFlutterInitialized = true;
     const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
     const ctx = new AC();
     
     // Automatically resume suspended AudioContext on play events to unmute audio output
@@ -280,13 +306,9 @@ async function storageGet(key, shared = false) {
       const r = await window.storage.get(key, shared);
       return r ? r.value : null;
     }
-    return localStorage.getItem(key);
+    return safeGetItem(key);
   } catch {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
-    }
+    return safeGetItem(key);
   }
 }
 
@@ -296,15 +318,9 @@ async function storageSet(key, value, shared = false) {
       await window.storage.set(key, value, shared);
       return true;
     }
-    localStorage.setItem(key, value);
-    return true;
+    return safeSetItem(key, value);
   } catch {
-    try {
-      localStorage.setItem(key, value);
-      return true;
-    } catch {
-      return false;
-    }
+    return safeSetItem(key, value);
   }
 }
 
@@ -951,7 +967,7 @@ export default function VoiceMixtapeApp() {
   const setView = useCallback((nextView) => {
     const update = () => {
       setViewRaw(nextView);
-      localStorage.setItem("minitape_view", nextView);
+      safeSetItem("minitape_view", nextView);
     };
     if (!document.startViewTransition) {
       update();
@@ -978,13 +994,13 @@ export default function VoiceMixtapeApp() {
   // Restore user session and view state on mount
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem("minitape_user");
+      const savedUser = safeGetItem("minitape_user");
       if (savedUser) {
         setUser(JSON.parse(savedUser));
       }
       const isDeepLink = window.location.pathname.startsWith("/m/") || window.location.pathname.startsWith("/inbox/");
       if (!isDeepLink) {
-        const savedView = localStorage.getItem("minitape_view");
+        const savedView = safeGetItem("minitape_view");
         if (savedView) {
           setViewRaw(savedView);
         }
@@ -998,10 +1014,10 @@ export default function VoiceMixtapeApp() {
   useEffect(() => {
     try {
       if (user) {
-        localStorage.setItem("minitape_user", JSON.stringify(user));
+        safeSetItem("minitape_user", JSON.stringify(user));
       } else {
-        localStorage.removeItem("minitape_user");
-        localStorage.removeItem("minitape_view");
+        safeRemoveItem("minitape_user");
+        safeRemoveItem("minitape_view");
       }
     } catch (e) {}
   }, [user]);
@@ -1032,7 +1048,7 @@ export default function VoiceMixtapeApp() {
   // Check for unsaved draft backup on mount
   useEffect(() => {
     try {
-      const backup = localStorage.getItem("mixtape_draft_backup");
+      const backup = safeGetItem("mixtape_draft_backup");
       if (backup) {
         const d = JSON.parse(backup);
         if (d && d.clips && d.clips.length > 0) {
@@ -1045,7 +1061,7 @@ export default function VoiceMixtapeApp() {
   // Autosave draft when it changes
   useEffect(() => {
     if (draft && draft.clips && draft.clips.length > 0) {
-      localStorage.setItem("mixtape_draft_backup", JSON.stringify(draft));
+      safeSetItem("mixtape_draft_backup", JSON.stringify(draft));
     }
   }, [draft]);
 
@@ -1126,7 +1142,7 @@ export default function VoiceMixtapeApp() {
 
   function goNewMixtape() {
     playTapeClick("heavy");
-    localStorage.removeItem("mixtape_draft_backup");
+    safeRemoveItem("mixtape_draft_backup");
     setDraft(blankDraft());
     setClipIndex(0);
     setView("record");
@@ -1135,7 +1151,7 @@ export default function VoiceMixtapeApp() {
   function handleRestoreDraft() {
     playTapeClick("heavy");
     try {
-      const backup = localStorage.getItem("mixtape_draft_backup");
+      const backup = safeGetItem("mixtape_draft_backup");
       if (backup) {
         const d = JSON.parse(backup);
         setDraft(d);
@@ -1210,7 +1226,7 @@ export default function VoiceMixtapeApp() {
       // Build clean short share URL
       const shareUrl = `https://minitape.grafty.pro/m/${code}`;
       setLastShareUrl(shareUrl);
-      localStorage.removeItem("mixtape_draft_backup");
+      safeRemoveItem("mixtape_draft_backup");
       setView("share");
     } catch (e) {
       flash("Couldn't publish — try again");
@@ -1224,8 +1240,8 @@ export default function VoiceMixtapeApp() {
     playTapeClick("light");
     try {
       // 1. Remove locally
-      localStorage.removeItem(`mixtape:${id}`);
-      localStorage.removeItem(`public:${code}`);
+      safeRemoveItem(`mixtape:${id}`);
+      safeRemoveItem(`public:${code}`);
 
       const idsRaw = await storageGet("user-mixtape-ids");
       const ids = idsRaw ? JSON.parse(idsRaw) : [];
@@ -1739,7 +1755,7 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
   const seenCountKey = `seen_inbox_count:${inboxCode}`;
   const [seenCount, setSeenCount] = useState(() => {
     try {
-      return parseInt(localStorage.getItem(seenCountKey) || "0", 10);
+      return parseInt(safeGetItem(seenCountKey) || "0", 10);
     } catch (e) {
       return 0;
     }
@@ -1755,7 +1771,7 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
         const list = data || [];
         setInboxNotes(list);
         if (activeTab === "inbox") {
-          localStorage.setItem(seenCountKey, list.length.toString());
+          safeSetItem(seenCountKey, list.length.toString());
           setSeenCount(list.length);
         }
       } else {
@@ -1779,7 +1795,7 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
 
   useEffect(() => {
     if (activeTab === "inbox" && inboxNotes.length !== seenCount) {
-      localStorage.setItem(seenCountKey, inboxNotes.length.toString());
+      safeSetItem(seenCountKey, inboxNotes.length.toString());
       setSeenCount(inboxNotes.length);
     }
   }, [activeTab, inboxNotes.length, seenCount, seenCountKey]);
@@ -2223,6 +2239,10 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
   async function startRecording() {
     playTapeClick("heavy");
     setRecError("");
+    if (typeof MediaRecorder === "undefined") {
+      setRecError("Recording is not supported in this browser. Please use Chrome or Safari.");
+      return;
+    }
     try {
       // Speech recognition initialization for Option B
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2257,11 +2277,11 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
       streamRef.current = stream;
 
       let options = {};
-      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+      if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
         options = { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 128000 };
-      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+      } else if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/mp4")) {
         options = { mimeType: "audio/mp4", audioBitsPerSecond: 128000 };
-      } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+      } else if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/aac")) {
         options = { mimeType: "audio/aac", audioBitsPerSecond: 128000 };
       } else {
         options = { audioBitsPerSecond: 128000 };
@@ -2287,6 +2307,10 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
       autoStopRef.current = setTimeout(() => stopRecording(), 60000);
 
       const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        setRecError("Web Audio is not supported in this browser.");
+        return;
+      }
       const ctx = new AC();
       audioCtxRef.current = ctx;
       const src = ctx.createMediaStreamSource(stream);
@@ -3528,6 +3552,10 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
     setRecError("");
     chunksRef.current = [];
     setElapsed(0);
+    if (typeof MediaRecorder === "undefined") {
+      setRecError("Recording is not supported in this browser. Please use Chrome or Safari.");
+      return;
+    }
     try {
       // Speech recognition initialization for Option B
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -3562,11 +3590,11 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
       streamRef.current = stream;
 
       let options = {};
-      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+      if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
         options = { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 128000 };
-      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+      } else if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/mp4")) {
         options = { mimeType: "audio/mp4", audioBitsPerSecond: 128000 };
-      } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+      } else if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/aac")) {
         options = { mimeType: "audio/aac", audioBitsPerSecond: 128000 };
       } else {
         options = { audioBitsPerSecond: 128000 };
