@@ -624,6 +624,40 @@ function Shell({ children, wide, onShowTerms }) {
         ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:9999px; }
         .drag-row{ cursor:grab; }
         .drag-row:active{ cursor:grabbing; }
+
+        /* Awwwards View Transitions */
+        ::view-transition-group(root) {
+          animation: 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        @keyframes slide-to-left {
+          to { transform: translateX(-15%); opacity: 0; filter: blur(3px); }
+        }
+        @keyframes slide-from-right {
+          from { transform: translateX(15%); opacity: 0; filter: blur(3px); }
+        }
+        @keyframes slide-to-right {
+          to { transform: translateX(15%); opacity: 0; filter: blur(3px); }
+        }
+        @keyframes slide-from-left {
+          from { transform: translateX(-15%); opacity: 0; filter: blur(3px); }
+        }
+        html:active-view-transition-type(forward)::view-transition-old(root) {
+          animation-name: slide-to-left;
+        }
+        html:active-view-transition-type(forward)::view-transition-new(root) {
+          animation-name: slide-from-right;
+        }
+        html:active-view-transition-type(backward)::view-transition-old(root) {
+          animation-name: slide-to-right;
+        }
+        html:active-view-transition-type(backward)::view-transition-new(root) {
+          animation-name: slide-from-left;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          ::view-transition-group(root) {
+            animation: none !important;
+          }
+        }
       `}</style>
       <div className={`w-full ${wide ? "max-w-md" : "max-w-sm"} fade-in flex flex-col justify-center`}>{children}</div>
       {onShowTerms && (
@@ -696,6 +730,36 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
   const leftRadius = side === "A" ? 34 - (16 * pct) : 18 + (16 * pct);
   const rightRadius = side === "A" ? 18 + (16 * pct) : 34 - (16 * pct);
 
+  const containerRef = useRef(null);
+  const glareRef = useRef(null);
+
+  function handleMouseMove(e) {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const rotateY = ((x / rect.width) - 0.5) * 16;
+    const rotateX = ((y / rect.height) - 0.5) * -16;
+
+    el.style.transform = `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+
+    if (glareRef.current) {
+      glareRef.current.style.opacity = "0.15";
+      glareRef.current.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 65%)`;
+    }
+  }
+
+  function handleMouseLeave() {
+    const el = containerRef.current;
+    if (!el) return;
+    el.style.transform = "perspective(800px) rotateX(0deg) rotateY(0deg)";
+    if (glareRef.current) {
+      glareRef.current.style.opacity = "0";
+    }
+  }
+
   let fontClass = "font-felt";
   if (stickerFont === "Felt-Tip") fontClass = "font-felt";
   else if (stickerFont === "Retro Typewriter") fontClass = "font-typewriter";
@@ -703,7 +767,7 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
   else if (stickerFont === "Clean Script") fontClass = "font-script";
 
   return (
-    <div className="relative mx-auto select-none" style={{ width: "100%", height: "100%" }}>
+    <div className="relative mx-auto select-none" style={{ width: "100%", height: "100%", perspective: "800px" }}>
       <style>{`
         @keyframes cassette-spin-cw {
           from { transform: rotate(0deg); }
@@ -711,9 +775,7 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
         }
         .spinning-reel {
           animation: cassette-spin-cw 4s linear infinite;
-        }
-        .spinning-reel-paused {
-          animation-play-state: paused;
+          transition: animation-duration 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
         @keyframes spool-wobble {
           0% { transform: translate(-0.3px, -0.3px); }
@@ -724,80 +786,103 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
         }
       `}</style>
 
-      <svg width="100%" height="100%" viewBox="0 0 300 190" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-2xl">
-        {/* Outer Casing */}
-        <rect x="5" y="5" width="290" height="180" rx="14" fill="var(--panel)" stroke="var(--border)" strokeWidth="3" />
-        
-        {/* Corner Assembly Screws */}
-        <circle cx="15" cy="15" r="3" fill="var(--text-low)" />
-        <line x1="13" y1="15" x2="17" y2="15" stroke="var(--ink)" strokeWidth="1" />
-        <circle cx="285" cy="15" r="3" fill="var(--text-low)" />
-        <line x1="283" y1="15" x2="287" y2="15" stroke="var(--ink)" strokeWidth="1" />
-        <circle cx="15" cy="175" r="3" fill="var(--text-low)" />
-        <line x1="13" y1="175" x2="17" y2="175" stroke="var(--ink)" strokeWidth="1" />
-        <circle cx="285" cy="175" r="3" fill="var(--text-low)" />
-        <line x1="283" y1="175" x2="287" y2="175" stroke="var(--ink)" strokeWidth="1" />
+      <div
+        ref={containerRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="w-full h-full relative"
+        style={{
+          transition: "transform 0.1s ease-out",
+          transformStyle: "preserve-3d"
+        }}
+      >
+        <svg width="100%" height="100%" viewBox="0 0 300 190" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-2xl">
+          {/* Outer Casing */}
+          <rect x="5" y="5" width="290" height="180" rx="14" fill="var(--panel)" stroke="var(--border)" strokeWidth="3" />
+          
+          {/* Corner Assembly Screws */}
+          <circle cx="15" cy="15" r="3" fill="var(--text-low)" />
+          <line x1="13" y1="15" x2="17" y2="15" stroke="var(--ink)" strokeWidth="1" />
+          <circle cx="285" cy="15" r="3" fill="var(--text-low)" />
+          <line x1="283" y1="15" x2="287" y2="15" stroke="var(--ink)" strokeWidth="1" />
+          <circle cx="15" cy="175" r="3" fill="var(--text-low)" />
+          <line x1="13" y1="175" x2="17" y2="175" stroke="var(--ink)" strokeWidth="1" />
+          <circle cx="285" cy="175" r="3" fill="var(--text-low)" />
+          <line x1="283" y1="175" x2="287" y2="175" stroke="var(--ink)" strokeWidth="1" />
 
-        {/* Outer label contour line */}
-        <rect x="20" y="20" width="260" height="110" rx="8" stroke="var(--border)" strokeWidth="1.5" strokeDasharray="3 3" />
+          {/* Outer label contour line */}
+          <rect x="20" y="20" width="260" height="110" rx="8" stroke="var(--border)" strokeWidth="1.5" strokeDasharray="3 3" />
 
-        {/* Sticker Label */}
-        <rect x="35" y="28" width="230" height="92" rx="8" fill="var(--paper)" stroke={themeColor || "var(--amber)"} strokeWidth="2.5" />
-        
-        {/* Decorative Tape Lines on Sticker */}
-        <line x1="35" y1="42" x2="265" y2="42" stroke={themeColor ? `${themeColor}44` : "var(--border)"} strokeWidth="1.5" />
-        <line x1="35" y1="48" x2="265" y2="48" stroke={themeColor ? `${themeColor}22` : "var(--border)"} strokeWidth="1.5" />
+          {/* Sticker Label */}
+          <rect x="35" y="28" width="230" height="92" rx="8" fill="var(--paper)" stroke={themeColor || "var(--amber)"} strokeWidth="2.5" />
+          
+          {/* Decorative Tape Lines on Sticker */}
+          <line x1="35" y1="42" x2="265" y2="42" stroke={themeColor ? `${themeColor}44` : "var(--border)"} strokeWidth="1.5" />
+          <line x1="35" y1="48" x2="265" y2="48" stroke={themeColor ? `${themeColor}22` : "var(--border)"} strokeWidth="1.5" />
 
-        {/* Handwritten Label Info */}
-        <text x="150" y="40" textAnchor="middle" fill="var(--ink)" fontSize="13" className={fontClass} fontWeight="600" letterSpacing="0.5">
-          {title ? title.substring(0, 24) : "My Story"}
-        </text>
+          {/* Handwritten Label Info */}
+          <text x="150" y="40" textAnchor="middle" fill="var(--ink)" fontSize="13" className={fontClass} fontWeight="600" letterSpacing="0.5">
+            {title ? title.substring(0, 24) : "My Story"}
+          </text>
 
-        {/* A/B side indicator */}
-        <text x="45" y="41" fill="var(--text-low)" fontSize="11" fontFamily="'Fraunces', serif" fontWeight="bold">{side}</text>
+          {/* A/B side indicator */}
+          <text x="45" y="41" fill="var(--text-low)" fontSize="11" fontFamily="'Fraunces', serif" fontWeight="bold">{side}</text>
 
-        {/* Center Transparent Window */}
-        <rect x="75" y="55" width="150" height="48" rx="6" fill="var(--ink)" stroke="var(--border)" strokeWidth="2" />
+          {/* Center Transparent Window */}
+          <rect x="75" y="55" width="150" height="48" rx="6" fill="var(--ink)" stroke="var(--border)" strokeWidth="2" />
 
-        {/* Tape Reels (Windings) */}
-        <circle cx="112" cy="79" r={leftRadius} fill="#1d222e" stroke="#12151c" strokeWidth="0.5" />
-        {leftRadius > 20 && <circle cx="112" cy="79" r={leftRadius - 4} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
-        {leftRadius > 28 && <circle cx="112" cy="79" r={leftRadius - 10} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
+          {/* Tape Reels (Windings) */}
+          <circle cx="112" cy="79" r={leftRadius} fill="#1d222e" stroke="#12151c" strokeWidth="0.5" />
+          {leftRadius > 20 && <circle cx="112" cy="79" r={leftRadius - 4} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
+          {leftRadius > 28 && <circle cx="112" cy="79" r={leftRadius - 10} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
 
-        <circle cx="188" cy="79" r={rightRadius} fill="#1d222e" stroke="#12151c" strokeWidth="0.5" />
-        {rightRadius > 20 && <circle cx="188" cy="79" r={rightRadius - 4} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
-        {rightRadius > 28 && <circle cx="188" cy="79" r={rightRadius - 10} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
+          <circle cx="188" cy="79" r={rightRadius} fill="#1d222e" stroke="#12151c" strokeWidth="0.5" />
+          {rightRadius > 20 && <circle cx="188" cy="79" r={rightRadius - 4} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
+          {rightRadius > 28 && <circle cx="188" cy="79" r={rightRadius - 10} stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />}
 
-        {/* Left Gear Spool */}
-        <g style={{ transformOrigin: '112px 79px' }} className={`${isSpinning ? 'spinning-reel' : 'spinning-reel spinning-reel-paused'} ${isSpinning ? 'wobbling' : ''}`}>
-          <circle cx="112" cy="79" r="13" fill="var(--paper)" stroke="var(--text-low)" strokeWidth="1" />
-          <circle cx="112" cy="79" r="6" fill="var(--ink)" />
-          <line x1="112" y1="67" x2="112" y2="91" stroke="var(--text-low)" strokeWidth="2.5" />
-          <line x1="101" y1="73" x2="123" y2="85" stroke="var(--text-low)" strokeWidth="2.5" />
-          <line x1="101" y1="85" x2="123" y2="73" stroke="var(--text-low)" strokeWidth="2.5" />
-        </g>
+          {/* Left Gear Spool */}
+          <g style={{ transformOrigin: '112px 79px', animationDuration: isSpinning ? '4s' : '99999s' }} className={`spinning-reel ${isSpinning ? 'wobbling' : ''}`}>
+            <circle cx="112" cy="79" r="13" fill="var(--paper)" stroke="var(--text-low)" strokeWidth="1" />
+            <circle cx="112" cy="79" r="6" fill="var(--ink)" />
+            <line x1="112" y1="67" x2="112" y2="91" stroke="var(--text-low)" strokeWidth="2.5" />
+            <line x1="101" y1="73" x2="123" y2="85" stroke="var(--text-low)" strokeWidth="2.5" />
+            <line x1="101" y1="85" x2="123" y2="73" stroke="var(--text-low)" strokeWidth="2.5" />
+          </g>
 
-        {/* Right Gear Spool */}
-        <g style={{ transformOrigin: '188px 79px' }} className={`${isSpinning ? 'spinning-reel' : 'spinning-reel spinning-reel-paused'} ${isSpinning ? 'wobbling' : ''}`}>
-          <circle cx="188" cy="79" r="13" fill="var(--paper)" stroke="var(--text-low)" strokeWidth="1" />
-          <circle cx="188" cy="79" r="6" fill="var(--ink)" />
-          <line x1="188" y1="67" x2="188" y2="91" stroke="var(--text-low)" strokeWidth="2.5" />
-          <line x1="177" y1="73" x2="199" y2="85" stroke="var(--text-low)" strokeWidth="2.5" />
-          <line x1="177" y1="85" x2="199" y2="73" stroke="var(--text-low)" strokeWidth="2.5" />
-        </g>
+          {/* Right Gear Spool */}
+          <g style={{ transformOrigin: '188px 79px', animationDuration: isSpinning ? '4s' : '99999s' }} className={`spinning-reel ${isSpinning ? 'wobbling' : ''}`}>
+            <circle cx="188" cy="79" r="13" fill="var(--paper)" stroke="var(--text-low)" strokeWidth="1" />
+            <circle cx="188" cy="79" r="6" fill="var(--ink)" />
+            <line x1="188" y1="67" x2="188" y2="91" stroke="var(--text-low)" strokeWidth="2.5" />
+            <line x1="177" y1="73" x2="199" y2="85" stroke="var(--text-low)" strokeWidth="2.5" />
+            <line x1="177" y1="85" x2="199" y2="73" stroke="var(--text-low)" strokeWidth="2.5" />
+          </g>
 
-        {/* Tape Running Path */}
-        <line x1="50" y1="152" x2="250" y2="152" stroke="#1d222e" strokeWidth="4" />
-        <circle cx="50" cy="152" r="6" fill="var(--border)" />
-        <circle cx="50" cy="152" r="2" fill="var(--ink)" />
-        <circle cx="250" cy="152" r="6" fill="var(--border)" />
-        <circle cx="250" cy="152" r="2" fill="var(--ink)" />
+          {/* Tape Running Path */}
+          <line x1="50" y1="152" x2="250" y2="152" stroke="#1d222e" strokeWidth="4" />
+          <circle cx="50" cy="152" r="6" fill="var(--border)" />
+          <circle cx="50" cy="152" r="2" fill="var(--ink)" />
+          <circle cx="250" cy="152" r="6" fill="var(--border)" />
+          <circle cx="250" cy="152" r="2" fill="var(--ink)" />
 
-        {/* Bottom Trapezoid Guard */}
-        <polygon points="65,178 85,142 215,142 235,178" fill="var(--panel2)" stroke="var(--border)" strokeWidth="1.5" />
-        <circle cx="95" cy="158" r="4.5" fill="var(--ink)" stroke="var(--border)" strokeWidth="1" />
-        <circle cx="205" cy="158" r="4.5" fill="var(--ink)" stroke="var(--border)" strokeWidth="1" />
-      </svg>
+          {/* Bottom Trapezoid Guard */}
+          <polygon points="65,178 85,142 215,142 235,178" fill="var(--panel2)" stroke="var(--border)" strokeWidth="1.5" />
+          <circle cx="95" cy="158" r="4.5" fill="var(--ink)" stroke="var(--border)" strokeWidth="1" />
+          <circle cx="205" cy="158" r="4.5" fill="var(--ink)" stroke="var(--border)" strokeWidth="1" />
+        </svg>
+
+        {/* Reflection Glare Overlay */}
+        <div
+          ref={glareRef}
+          className="absolute inset-0 rounded-2xl pointer-events-none"
+          style={{
+            opacity: 0,
+            transition: "opacity 0.25s ease-out",
+            mixBlendMode: "overlay",
+            zIndex: 10
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -807,7 +892,23 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
 /* ------------------------------------------------------------------ */
 
 export default function VoiceMixtapeApp() {
-  const [view, setView] = useState("landing");
+  const [view, setViewRaw] = useState("landing");
+
+  const setView = useCallback((nextView) => {
+    const update = () => setViewRaw(nextView);
+    if (!document.startViewTransition) {
+      update();
+      return;
+    }
+    const backwardsViews = ["dashboard", "landing"];
+    const isBack = backwardsViews.includes(nextView) || nextView === "terms";
+    const direction = isBack ? "backward" : "forward";
+
+    document.startViewTransition({
+      update,
+      types: [direction]
+    });
+  }, []);
   const [user, setUser] = useState(null);
   const [mixtapes, setMixtapes] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
@@ -2642,11 +2743,20 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
             </button>
           </div>
 
-          <div onClick={seek} className="h-1.5 rounded-full mb-2 cursor-pointer" style={{ background: "var(--border)" }}>
+          <div onClick={seek} className="h-2 rounded-full mb-2 cursor-pointer relative group flex items-center" style={{ background: "var(--border)" }}>
             <div
-              className="h-1.5 rounded-full"
+              className="h-full rounded-full relative"
               style={{ width: `${progressPct}%`, background: mixtape.theme, transition: "width .1s linear" }}
-            />
+            >
+              <div
+                className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full shadow-md transform translate-x-1/2 scale-0 group-hover:scale-100"
+                style={{
+                  background: mixtape.theme,
+                  border: "2px solid var(--panel)",
+                  transition: "transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), scale 0.2s ease"
+                }}
+              />
+            </div>
           </div>
           <div className="flex justify-between text-[11px] font-mono text-low">
             <span>{formatTime(currentTime)}</span>
