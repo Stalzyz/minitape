@@ -2089,9 +2089,28 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
     playTapeClick("heavy");
     setRecError("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: false },
+          noiseSuppression: { ideal: false },
+          autoGainControl: { ideal: false },
+          sampleRate: { ideal: 48000 }
+        }
+      });
       streamRef.current = stream;
-      const mr = new MediaRecorder(stream);
+
+      let options = {};
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        options = { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 128000 };
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        options = { mimeType: "audio/mp4", audioBitsPerSecond: 128000 };
+      } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+        options = { mimeType: "audio/aac", audioBitsPerSecond: 128000 };
+      } else {
+        options = { audioBitsPerSecond: 128000 };
+      }
+
+      const mr = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mr;
       chunksRef.current = [];
       mr.ondataavailable = (e) => {
@@ -2139,7 +2158,8 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
   }
 
   function handleStop() {
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
+    const blob = new Blob(chunksRef.current, { type: mimeType });
     const reader = new FileReader();
     reader.onloadend = () => {
       const dataUrl = reader.result;
@@ -3112,9 +3132,28 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
     chunksRef.current = [];
     setElapsed(0);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: false },
+          noiseSuppression: { ideal: false },
+          autoGainControl: { ideal: false },
+          sampleRate: { ideal: 48000 }
+        }
+      });
       streamRef.current = stream;
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+      let options = {};
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        options = { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 128000 };
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        options = { mimeType: "audio/mp4", audioBitsPerSecond: 128000 };
+      } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+        options = { mimeType: "audio/aac", audioBitsPerSecond: 128000 };
+      } else {
+        options = { audioBitsPerSecond: 128000 };
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       
       mediaRecorder.ondataavailable = (e) => {
@@ -3124,7 +3163,8 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
           setAudioUrl(reader.result);
