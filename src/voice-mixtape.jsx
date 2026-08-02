@@ -831,6 +831,27 @@ export default function VoiceMixtapeApp() {
   const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
   const [prevView, setPrevView] = useState("landing");
   const [editingCode, setEditingCode] = useState(null);
+  const [hasBackup, setHasBackup] = useState(false);
+
+  // Check for unsaved draft backup on mount
+  useEffect(() => {
+    try {
+      const backup = localStorage.getItem("mixtape_draft_backup");
+      if (backup) {
+        const d = JSON.parse(backup);
+        if (d && d.clips && d.clips.length > 0) {
+          setHasBackup(true);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  // Autosave draft when it changes
+  useEffect(() => {
+    if (draft && draft.clips && draft.clips.length > 0) {
+      localStorage.setItem("mixtape_draft_backup", JSON.stringify(draft));
+    }
+  }, [draft]);
 
   function flash(msg) {
     setToast(msg);
@@ -909,9 +930,27 @@ export default function VoiceMixtapeApp() {
 
   function goNewMixtape() {
     playTapeClick("heavy");
+    localStorage.removeItem("mixtape_draft_backup");
     setDraft(blankDraft());
     setClipIndex(0);
     setView("record");
+  }
+
+  function handleRestoreDraft() {
+    playTapeClick("heavy");
+    try {
+      const backup = localStorage.getItem("mixtape_draft_backup");
+      if (backup) {
+        const d = JSON.parse(backup);
+        setDraft(d);
+        setClipIndex(d.clips.length);
+        setView("builder");
+        setHasBackup(false);
+        flash("Draft restored!");
+      }
+    } catch (e) {
+      console.error("Draft restore failed:", e);
+    }
   }
 
   function handleEditMixtape(mixtape) {
@@ -978,6 +1017,7 @@ export default function VoiceMixtapeApp() {
         ? `https://minitape.grafty.pro/m/${code}#d=${payload}`
         : `https://minitape.grafty.pro/m/${code}`;
       setLastShareUrl(shareUrl);
+      localStorage.removeItem("mixtape_draft_backup");
       setView("share");
     } catch (e) {
       flash("Couldn't publish — try again");
@@ -1077,6 +1117,8 @@ export default function VoiceMixtapeApp() {
           onOpenCode={() => openByCode(codeInput)}
           error={publicError}
           onShowTerms={() => { setPrevView("dashboard"); setView("terms"); }}
+          hasBackup={hasBackup}
+          onRestoreDraft={handleRestoreDraft}
         />
       )}
       {view === "record" && (
@@ -1374,7 +1416,7 @@ function Login({ onDone, onBack, title = "Welcome", description = "Sign in to st
 /*  Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
-function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error, onShowTerms }) {
+function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error, onShowTerms, hasBackup, onRestoreDraft }) {
   const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
   const [inboxNotes, setInboxNotes] = useState([]);
   const [loadingInbox, setLoadingInbox] = useState(false);
@@ -1445,6 +1487,19 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
           <SettingsIcon size={16} />
         </button>
       </div>
+
+      {/* Unsaved Draft Restoration Banner */}
+      {hasBackup && (
+        <div className="card rounded-2xl p-4 mb-6 border-coral text-center flex flex-col items-center justify-center gap-2 bg-coral-light animate-pulse" style={{ borderColor: "var(--coral)", borderWidth: "1.5px" }}>
+          <p className="text-xs text-hi font-medium">You have an unsaved voice note draft!</p>
+          <button
+            onClick={onRestoreDraft}
+            className="btn-amber rounded-full px-4 py-2 text-xs font-mono font-bold"
+          >
+            Restore Draft
+          </button>
+        </div>
+      )}
 
       {/* Tab Switcher */}
       <div className="flex border-b mb-6" style={{ borderColor: "var(--border)" }}>
