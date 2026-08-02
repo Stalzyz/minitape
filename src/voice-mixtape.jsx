@@ -1153,11 +1153,8 @@ export default function VoiceMixtapeApp() {
         console.error("Failed to sync with server:", err);
       }
 
-      // Build full self-contained share URL with encoded mixtape payload
-      const payload = encodeMixtapePayload(mixtape);
-      const shareUrl = payload
-        ? `https://minitape.grafty.pro/m/${code}#d=${payload}`
-        : `https://minitape.grafty.pro/m/${code}`;
+      // Build clean short share URL
+      const shareUrl = `https://minitape.grafty.pro/m/${code}`;
       setLastShareUrl(shareUrl);
       localStorage.removeItem("mixtape_draft_backup");
       setView("share");
