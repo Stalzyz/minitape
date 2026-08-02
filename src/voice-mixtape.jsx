@@ -1024,6 +1024,37 @@ export default function VoiceMixtapeApp() {
     }
   }
 
+  async function deleteMixtape(code, id) {
+    if (!window.confirm("Are you sure you want to delete this mixtape? This will deactivate its shared link permanently.")) {
+      return;
+    }
+    playTapeClick("light");
+    try {
+      // 1. Remove locally
+      localStorage.removeItem(`mixtape:${id}`);
+      localStorage.removeItem(`public:${code}`);
+
+      const idsRaw = await storageGet("user-mixtape-ids");
+      const ids = idsRaw ? JSON.parse(idsRaw) : [];
+      const newIds = ids.filter((x) => x !== id);
+      await storageSet("user-mixtape-ids", JSON.stringify(newIds));
+
+      setMixtapes((prev) => prev.filter((m) => m.id !== id));
+
+      // 2. Call server DELETE API
+      await fetch(`/api/mixtape/${code}`, {
+        method: "DELETE",
+      });
+
+      flash("Mixtape deleted");
+      window.history.pushState({}, "", "/");
+      setView(user ? "dashboard" : "landing");
+    } catch (e) {
+      console.error(e);
+      flash("Failed to delete mixtape");
+    }
+  }
+
   async function openByCode(raw) {
     const code = (raw || "").trim().toUpperCase();
     if (!code) return;
@@ -1192,6 +1223,7 @@ export default function VoiceMixtapeApp() {
             flash("Imported to Dashboard!");
           }}
           isImported={mixtapes.some((m) => m.id === publicMixtape?.id)}
+          onDelete={() => deleteMixtape(publicMixtape.code, publicMixtape.id)}
         />
       )}
       {view === "public-intro" && (
@@ -2423,7 +2455,7 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
 /*  Public player                                                       */
 /* ------------------------------------------------------------------ */
 
-function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack, autoPlayOnMount, user, onEdit, onImport, isImported }) {
+function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack, autoPlayOnMount, user, onEdit, onImport, isImported, onDelete }) {
   const [playingIndex, setPlayingIndex] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -2688,21 +2720,30 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
 
         {/* Creator / Visitor Control Actions */}
         {user && (
-          <div className="flex gap-2 mt-4">
-            <button
-              onClick={onEdit}
-              className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
-            >
-              <Edit size={12} /> Edit Tape
-            </button>
-            {!isImported && (
+          <div className="flex flex-col gap-2 mt-4 w-full">
+            <div className="flex gap-2 w-full">
               <button
-                onClick={onImport}
+                onClick={onEdit}
                 className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
               >
-                <Plus size={12} /> Import
+                <Edit size={12} /> Edit Tape
               </button>
-            )}
+              {!isImported && (
+                <button
+                  onClick={onImport}
+                  className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Plus size={12} /> Import
+                </button>
+              )}
+            </div>
+            <button
+              onClick={onDelete}
+              className="btn-ghost w-full rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+              style={{ color: "var(--coral)", borderColor: "var(--coral)" }}
+            >
+              <Trash2 size={12} /> Delete Tape
+            </button>
           </div>
         )}
         {!user && !isImported && (

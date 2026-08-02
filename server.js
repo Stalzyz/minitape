@@ -128,6 +128,27 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // 4. Delete mixtape by code
+  else if (req.method === 'DELETE' && req.url.startsWith('/api/mixtape/')) {
+    const code = req.url.substring('/api/mixtape/'.length).trim().toUpperCase();
+    if (!code) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing code' }));
+      return;
+    }
+    const filepath = path.join(SHARES_DIR, `${code}.json`);
+    fs.unlink(filepath, err => {
+      if (err && err.code !== 'ENOENT') {
+        console.error(err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to delete file' }));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      }
+    });
+  }
+
   else {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
