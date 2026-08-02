@@ -907,10 +907,16 @@ export default function VoiceMixtapeApp() {
     const isBack = backwardsViews.includes(nextView) || nextView === "terms";
     const direction = isBack ? "backward" : "forward";
 
-    document.startViewTransition({
-      update,
-      types: [direction]
-    });
+    try {
+      const transition = document.startViewTransition({
+        update,
+        types: [direction]
+      });
+      transition.ready.catch(() => {});
+      transition.finished.catch(() => {});
+    } catch (e) {
+      update();
+    }
   }, []);
 
   const [user, setUser] = useState(null);
