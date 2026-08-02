@@ -3,7 +3,7 @@ import {
   Mic, Square, Play, Pause, SkipForward, SkipBack, Copy, Share2, QrCode,
   Trash2, RotateCcw, ChevronRight, Settings as SettingsIcon, Plus, Link2,
   Lock, Globe, EyeOff, GripVertical, Check, ArrowLeft, LogOut, X, Edit,
-  Headphones, Sparkles, Heart, Sun, Moon, Music, Smile, Disc
+  Headphones, Sparkles, Heart, Sun, Moon, Music, Smile, Disc, Shield, Search, Users
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -1300,6 +1300,8 @@ export default function VoiceMixtapeApp() {
           onShowTerms={() => { setPrevView("dashboard"); setView("terms"); }}
           hasBackup={hasBackup}
           onRestoreDraft={handleRestoreDraft}
+          onAdmin={() => { playTapeClick("light"); setView("admin"); }}
+          isAdmin={user && ['stalinkumar18@gmail.com', 'team@grafty.pro'].includes(user.email)}
         />
       )}
       {view === "record" && (
@@ -1428,6 +1430,13 @@ export default function VoiceMixtapeApp() {
             setUser(null);
             setView("landing");
           }}
+        />
+      )}
+      {view === "admin" && (
+        <AdminPanel
+          user={user}
+          onBack={() => { playTapeClick("light"); setView("dashboard"); }}
+          flash={flash}
         />
       )}
       {view === "inbox-send" && (
@@ -1598,7 +1607,7 @@ function Login({ onDone, onBack, title = "Welcome", description = "Sign in to st
 /*  Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
-function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error, onShowTerms, hasBackup, onRestoreDraft }) {
+function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error, onShowTerms, hasBackup, onRestoreDraft, onAdmin, isAdmin }) {
   const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
   const [inboxNotes, setInboxNotes] = useState([]);
   const [loadingInbox, setLoadingInbox] = useState(false);
@@ -1701,6 +1710,11 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
   return (
     <Shell wide onShowTerms={onShowTerms}>
       <div className="flex flex-col items-center text-center mb-6 relative">
+        {isAdmin && (
+          <button onClick={onAdmin} className="btn-ghost rounded-full p-3 absolute left-0 top-1/2 -translate-y-1/2" title="Admin Panel">
+            <Shield size={16} style={{ color: "var(--amber)" }} />
+          </button>
+        )}
         <p className="text-xs text-low font-mono uppercase tracking-wide">Hey</p>
         <h1 className="font-display text-hi text-2xl" style={{ fontWeight: 600 }}>
           {user?.name || "there"}
@@ -3084,6 +3098,217 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
           </div>
         )}
       </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Admin Panel                                                        */
+/* ------------------------------------------------------------------ */
+
+function AdminPanel({ user, onBack, flash }) {
+  const [activeTab, setActiveTab] = useState("users"); // users | mixtapes
+  const [users, setUsers] = useState([]);
+  const [mixtapes, setMixtapes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const fetchAdminData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/data", {
+        headers: { "x-admin-email": user?.email || "" }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users || []);
+        setMixtapes(data.mixtapes || []);
+      } else {
+        flash("Unauthorized or server error");
+      }
+    } catch (e) {
+      console.error(e);
+      flash("Failed to fetch admin statistics");
+    }
+    setLoading(false);
+  }, [user, flash]);
+
+  useEffect(() => {
+    fetchAdminData();
+  }, [fetchAdminData]);
+
+  async function handleDeleteMixtape(code) {
+    if (!window.confirm(`Are you sure you want to moderate and delete mixtape ${code}?`)) return;
+    try {
+      const res = await fetch(`/api/mixtape/${code}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        flash("Mixtape deleted successfully");
+        setMixtapes(prev => prev.filter(m => m.code !== code));
+      } else {
+        flash("Failed to delete mixtape");
+      }
+    } catch (e) {
+      console.error(e);
+      flash("Error deleting mixtape");
+    }
+  }
+
+  async function handleDeleteUser(code) {
+    if (!window.confirm(`Are you sure you want to delete user ${code}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/user/${code}`, {
+        method: "DELETE",
+        headers: { "x-admin-email": user?.email || "" }
+      });
+      if (res.ok) {
+        flash("User deleted successfully");
+        setUsers(prev => prev.filter(u => u.code !== code));
+      } else {
+        flash("Failed to delete user");
+      }
+    } catch (e) {
+      console.error(e);
+      flash("Error deleting user");
+    }
+  }
+
+  const filteredUsers = users.filter(u => 
+    (u.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.code || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredMixtapes = mixtapes.filter(m => 
+    (m.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (m.author || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (m.code || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const totalPlays = mixtapes.reduce((sum, m) => sum + (m.plays || 0), 0);
+
+  return (
+    <Shell wide>
+      <BackBar onBack={onBack} title="Admin Control Panel" />
+
+      {/* Metrics Row */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="card rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-low font-mono uppercase tracking-wide">Users</p>
+          <p className="text-xl font-display text-hi font-bold mt-1">{users.length}</p>
+        </div>
+        <div className="card rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-low font-mono uppercase tracking-wide">Mixtapes</p>
+          <p className="text-xl font-display text-hi font-bold mt-1">{mixtapes.length}</p>
+        </div>
+        <div className="card rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-low font-mono uppercase tracking-wide">Plays</p>
+          <p className="text-xl font-display text-hi font-bold mt-1">{totalPlays}</p>
+        </div>
+      </div>
+
+      {/* Tab Selectors */}
+      <div className="flex border-b mb-6" style={{ borderColor: "var(--border)" }}>
+        <button
+          onClick={() => { playTapeClick("light"); setActiveTab("users"); setSearchQuery(""); }}
+          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer flex items-center justify-center gap-1.5"
+          style={{
+            color: activeTab === "users" ? "var(--text-hi)" : "var(--text-low)",
+            borderBottom: activeTab === "users" ? "2px solid var(--text-hi)" : "2px solid transparent"
+          }}
+        >
+          <Users size={12} /> Users
+        </button>
+        <button
+          onClick={() => { playTapeClick("light"); setActiveTab("mixtapes"); setSearchQuery(""); }}
+          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer flex items-center justify-center gap-1.5"
+          style={{
+            color: activeTab === "mixtapes" ? "var(--text-hi)" : "var(--text-low)",
+            borderBottom: activeTab === "mixtapes" ? "2px solid var(--text-hi)" : "2px solid transparent"
+          }}
+        >
+          <Disc size={12} /> Mixtapes
+        </button>
+      </div>
+
+      {/* Search Input */}
+      <div className="relative mb-6">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-low" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={`Search ${activeTab}...`}
+          className="w-full rounded-full pl-9 pr-4 py-2 text-xs font-mono"
+        />
+      </div>
+
+      {loading ? (
+        <p className="text-center text-xs font-mono text-low py-8">Loading administration data...</p>
+      ) : (
+        <div className="space-y-4">
+          {activeTab === "users" && (
+            <div className="card rounded-2xl overflow-hidden border border-[var(--border)] divide-y divide-[var(--border)]">
+              {filteredUsers.length === 0 ? (
+                <p className="text-center text-xs text-low p-6">No users match your query.</p>
+              ) : (
+                filteredUsers.map(u => (
+                  <div key={u.code} className="p-4 flex justify-between items-center bg-transparent">
+                    <div className="min-w-0 pr-4">
+                      <p className="text-sm font-medium text-hi truncate">{u.name}</p>
+                      <p className="text-xs text-low truncate font-mono mt-0.5">{u.email}</p>
+                      <p className="text-[10px] text-low font-mono mt-1">Code: <span className="text-hi">{u.code}</span> · Registered: {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteUser(u.code)}
+                      className="btn-ghost rounded-full px-2.5 py-1 text-[10px] font-mono shrink-0"
+                      style={{ color: "var(--coral)" }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {activeTab === "mixtapes" && (
+            <div className="card rounded-2xl overflow-hidden border border-[var(--border)] divide-y divide-[var(--border)]">
+              {filteredMixtapes.length === 0 ? (
+                <p className="text-center text-xs text-low p-6">No mixtapes match your query.</p>
+              ) : (
+                filteredMixtapes.map(m => (
+                  <div key={m.code} className="p-4 flex justify-between items-center bg-transparent">
+                    <div className="min-w-0 pr-4">
+                      <p className="text-sm font-medium text-hi truncate">{m.title}</p>
+                      <p className="text-xs text-low truncate font-mono mt-0.5">by {m.author} · {m.clipCount || 0} Clips</p>
+                      <p className="text-[10px] text-low font-mono mt-1">Code: <span className="text-hi">{m.code}</span> · {m.plays || 0} Plays</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <a
+                        href={`/m/${m.code}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-ghost rounded-full px-2.5 py-1 text-[10px] font-mono flex items-center justify-center"
+                      >
+                        Open
+                      </a>
+                      <button
+                        onClick={() => handleDeleteMixtape(m.code)}
+                        className="btn-ghost rounded-full px-2.5 py-1 text-[10px] font-mono shrink-0"
+                        style={{ color: "var(--coral)" }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </Shell>
   );
 }
