@@ -962,10 +962,10 @@ export default function VoiceMixtapeApp() {
     const direction = isBack ? "backward" : "forward";
 
     try {
-      const transition = document.startViewTransition({
-        update,
-        types: [direction]
-      });
+      const transition = document.startViewTransition(update);
+      if (transition.types && typeof transition.types.add === "function") {
+        transition.types.add(direction);
+      }
       transition.ready.catch(() => {});
       transition.finished.catch(() => {});
     } catch (e) {
