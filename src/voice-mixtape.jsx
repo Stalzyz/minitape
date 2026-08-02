@@ -239,10 +239,35 @@ function applyWowFlutter(audioElement) {
 
 async function storageGet(key, shared = false) {
   try {
-    const r = await window.storage.get(key, shared);
-    return r ? r.value : null;
+    if (window.storage?.get) {
+      const r = await window.storage.get(key, shared);
+      return r ? r.value : null;
+    }
+    return localStorage.getItem(key);
   } catch {
-    return null;
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function storageSet(key, value, shared = false) {
+  try {
+    if (window.storage?.set) {
+      await window.storage.set(key, value, shared);
+      return true;
+    }
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -898,12 +923,12 @@ export default function VoiceMixtapeApp() {
       plays: 0,
     };
     try {
-      await window.storage.set(`mixtape:${mixtape.id}`, JSON.stringify(mixtape));
-      await window.storage.set(`public:${code}`, JSON.stringify(mixtape), true);
+      await storageSet(`mixtape:${mixtape.id}`, JSON.stringify(mixtape));
+      await storageSet(`public:${code}`, JSON.stringify(mixtape), true);
       const idsRaw = await storageGet("user-mixtape-ids");
       const ids = idsRaw ? JSON.parse(idsRaw) : [];
       ids.unshift(mixtape.id);
-      await window.storage.set("user-mixtape-ids", JSON.stringify(ids));
+      await storageSet("user-mixtape-ids", JSON.stringify(ids));
       setMixtapes((prev) => [mixtape, ...prev]);
       setLastCode(code);
 
@@ -965,7 +990,7 @@ export default function VoiceMixtapeApp() {
     }
 
     m.plays = (m.plays || 0) + 1;
-    window.storage.set(`public:${code}`, JSON.stringify(m), true).catch(() => {});
+    storageSet(`public:${code}`, JSON.stringify(m), true).catch(() => {});
     setPublicMixtape(m);
     setPasswordUnlocked(m.privacy !== "password");
     setPwInput("");
