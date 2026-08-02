@@ -1114,21 +1114,72 @@ function Landing({ onLogin }) {
 /* ------------------------------------------------------------------ */
 
 function Login({ onDone, onBack }) {
+  const googleBtnRef = useRef(null);
+
+  useEffect(() => {
+    function parseJwt(token) {
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    const handleCredentialResponse = (response) => {
+      const payload = parseJwt(response.credential);
+      if (payload) {
+        onDone({
+          name: payload.name || payload.given_name || "Google User",
+          email: payload.email,
+          picture: payload.picture,
+          provider: "google"
+        });
+      }
+    };
+
+    const initGoogleSignIn = () => {
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: "925137694503-tqfil9ug38o8h6qbo6du6jsucf5fsneq.apps.googleusercontent.com",
+          callback: handleCredentialResponse
+        });
+        if (googleBtnRef.current) {
+          window.google.accounts.id.renderButton(
+            googleBtnRef.current,
+            { theme: "outline", size: "large", width: 280, shape: "pill" }
+          );
+        }
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initGoogleSignIn();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          initGoogleSignIn();
+          clearInterval(interval);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [onDone]);
+
   return (
     <Shell>
       <BackBar onBack={onBack} />
-      <div className="card rounded-3xl p-8">
+      <div className="card rounded-3xl p-8 flex flex-col items-center">
         <h2 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 600 }}>
           Welcome
         </h2>
-        <p className="text-mid text-sm mb-6">Sign in to start recording.</p>
+        <p className="text-mid text-sm mb-6 text-center">Sign in to start recording.</p>
 
-        <button
-          onClick={() => onDone({ name: "You", provider: "google" })}
-          className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
-        >
-          Continue with Google
-        </button>
+        <div ref={googleBtnRef} className="w-full flex justify-center min-h-[44px]" />
       </div>
     </Shell>
   );
