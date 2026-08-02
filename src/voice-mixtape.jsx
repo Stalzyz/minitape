@@ -44,6 +44,22 @@ function genCode() {
   for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
 }
+function getInboxCode(email) {
+  if (!email) return "";
+  let hash = 0;
+  const cleanEmail = email.trim().toLowerCase();
+  for (let i = 0; i < cleanEmail.length; i++) {
+    hash = cleanEmail.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let code = "";
+  let temp = Math.abs(hash);
+  for (let i = 0; i < 6; i++) {
+    code += chars[temp % chars.length];
+    temp = Math.floor(temp / chars.length);
+  }
+  return code;
+}
 function formatTime(s) {
   s = Math.max(0, Math.round(s || 0));
   const m = Math.floor(s / 60);
@@ -122,6 +138,23 @@ function playTapeClick(type = "heavy") {
       osc.stop(now + 0.12);
       noise.start(now);
       noise.stop(now + 0.04);
+    } else if (type === "eject") {
+      // Mechanical slide + eject sound
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(60, now);
+      osc.frequency.linearRampToValueAtTime(20, now + 0.25);
+      
+      gainNode.gain.setValueAtTime(0.08, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      
+      osc.start(now);
+      osc.stop(now + 0.25);
     } else {
       // Crisp mechanical switch click (settings, select, back)
       const osc = ctx.createOscillator();
@@ -275,11 +308,11 @@ function drawQr(canvas, code) {
 /*  small shared UI bits                                               */
 /* ------------------------------------------------------------------ */
 
-function Shell({ children, wide }) {
+function Shell({ children, wide, onShowTerms }) {
   return (
     <div
       style={{ fontFamily: "Inter, sans-serif" }}
-      className="min-h-screen w-full flex items-center justify-center py-10 px-4 bg-grid"
+      className="min-h-screen w-full flex flex-col items-center justify-center py-10 px-4 bg-grid"
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@700&family=Special+Elite&family=Permanent+Marker&display=swap');
@@ -567,7 +600,17 @@ function Shell({ children, wide }) {
         .drag-row{ cursor:grab; }
         .drag-row:active{ cursor:grabbing; }
       `}</style>
-      <div className={`w-full ${wide ? "max-w-md" : "max-w-sm"} fade-in`}>{children}</div>
+      <div className={`w-full ${wide ? "max-w-md" : "max-w-sm"} fade-in flex flex-col justify-center`}>{children}</div>
+      {onShowTerms && (
+        <div className="mt-8 text-center shrink-0">
+          <button
+            onClick={onShowTerms}
+            className="text-[11px] font-mono text-low hover:text-mid cursor-pointer bg-transparent border-none underline"
+          >
+            Terms & Privacy Policy
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -755,6 +798,14 @@ export default function VoiceMixtapeApp() {
   const [publicError, setPublicError] = useState("");
   const [autoPlayPublic, setAutoPlayPublic] = useState(false);
 
+  // Anonymous Inbox States
+  const [inboxCode, setInboxCode] = useState("");
+  const [inboxRecipient, setInboxRecipient] = useState("");
+  const [inboxNotes, setInboxNotes] = useState([]);
+  const [loadingInbox, setLoadingInbox] = useState(false);
+  const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
+  const [prevView, setPrevView] = useState("landing");
+
   function flash(msg) {
     setToast(msg);
     setTimeout(() => setToast(null), 1800);
@@ -778,9 +829,28 @@ export default function VoiceMixtapeApp() {
     if (view === "dashboard") loadMyMixtapes();
   }, [view, loadMyMixtapes]);
 
-  // URL deep-link: handle /m/CODE on initial load and browser back/forward
+  // URL deep-link: handle /m/CODE and /inbox/CODE on initial load and browser back/forward
   useEffect(() => {
     async function handlePath(pathname, hash) {
+      const inboxMatch = pathname.match(/^\/inbox\/([A-Z0-9]+)$/i);
+      if (inboxMatch) {
+        const code = inboxMatch[1].toUpperCase();
+        setInboxCode(code);
+        try {
+          const res = await fetch(`/shares/inbox_names/${code}.json`);
+          if (res.ok) {
+            const data = await res.json();
+            setInboxRecipient(data.name);
+          } else {
+            setInboxRecipient("Someone");
+          }
+        } catch {
+          setInboxRecipient("Someone");
+        }
+        setView("inbox-send");
+        return;
+      }
+
       const match = pathname.match(/^\/m\/([A-Z0-9]+)$/i);
       if (!match) return;
       const code = match[1].toUpperCase();
@@ -911,6 +981,7 @@ export default function VoiceMixtapeApp() {
       {view === "landing" && (
         <Landing
           onLogin={() => { playTapeClick("light"); setView("login"); }}
+          onShowTerms={() => { setPrevView("landing"); setView("terms"); }}
         />
       )}
       {view === "login" && (
@@ -919,8 +990,15 @@ export default function VoiceMixtapeApp() {
             playTapeClick("heavy");
             setUser(u);
             setView("dashboard");
+            const code = getInboxCode(u.email);
+            fetch("/api/inbox/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code, name: u.name, email: u.email })
+            }).catch(e => console.error("Inbox registration failed:", e));
           }}
           onBack={() => { playTapeClick("light"); setView("landing"); }}
+          onShowTerms={() => { setPrevView("login"); setView("terms"); }}
         />
       )}
       {view === "dashboard" && (
@@ -946,6 +1024,7 @@ export default function VoiceMixtapeApp() {
           setCodeInput={setCodeInput}
           onOpenCode={() => openByCode(codeInput)}
           error={publicError}
+          onShowTerms={() => { setPrevView("dashboard"); setView("terms"); }}
         />
       )}
       {view === "record" && (
@@ -1061,6 +1140,25 @@ export default function VoiceMixtapeApp() {
           }}
         />
       )}
+      {view === "inbox-send" && (
+        <InboxSend
+          recipientName={inboxRecipient}
+          inboxCode={inboxCode}
+          onBack={() => {
+            playTapeClick("light");
+            window.history.pushState({}, "", "/");
+            setView(user ? "dashboard" : "landing");
+          }}
+        />
+      )}
+      {view === "terms" && (
+        <TermsAndPrivacy
+          onBack={() => {
+            playTapeClick("light");
+            setView(prevView);
+          }}
+        />
+      )}
       <Toast toast={toast} />
     </>
   );
@@ -1104,9 +1202,9 @@ function PublicIntro({ mixtape, onPlay }) {
 /*  Landing                                                             */
 /* ------------------------------------------------------------------ */
 
-function Landing({ onLogin }) {
+function Landing({ onLogin, onShowTerms }) {
   return (
-    <Shell>
+    <Shell onShowTerms={onShowTerms}>
       <div className="card rounded-3xl p-8 text-center">
         <div className="cassette-flip-container mx-auto">
           <CassetteTape
@@ -1134,7 +1232,7 @@ function Landing({ onLogin }) {
 /*  Login                                                                */
 /* ------------------------------------------------------------------ */
 
-function Login({ onDone, onBack }) {
+function Login({ onDone, onBack, title = "Welcome", description = "Sign in to start recording.", onShowTerms }) {
   const googleBtnRef = useRef(null);
 
   useEffect(() => {
@@ -1192,13 +1290,13 @@ function Login({ onDone, onBack }) {
   }, [onDone]);
 
   return (
-    <Shell>
+    <Shell onShowTerms={onShowTerms}>
       <BackBar onBack={onBack} />
       <div className="card rounded-3xl p-8 flex flex-col items-center">
-        <h2 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 600 }}>
-          Welcome
+        <h2 className="font-display text-hi text-2xl mb-1 text-center" style={{ fontWeight: 600 }}>
+          {title}
         </h2>
-        <p className="text-mid text-sm mb-6 text-center">Sign in to start recording.</p>
+        <p className="text-mid text-sm mb-6 text-center leading-relaxed">{description}</p>
 
         <div ref={googleBtnRef} className="w-full flex justify-center min-h-[44px]" />
       </div>
@@ -1210,9 +1308,68 @@ function Login({ onDone, onBack }) {
 /*  Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
-function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error }) {
+function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, onCopy, codeInput, setCodeInput, onOpenCode, error, onShowTerms }) {
+  const [activeTab, setActiveTab] = useState("tapes"); // tapes | inbox
+  const [inboxNotes, setInboxNotes] = useState([]);
+  const [loadingInbox, setLoadingInbox] = useState(false);
+  const [playingNoteId, setPlayingNoteId] = useState(null);
+  const [notePlaying, setNotePlaying] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+  const noteAudioRef = useRef(null);
+
+  const inboxCode = getInboxCode(user?.email);
+
+  const fetchInbox = useCallback(async () => {
+    if (!inboxCode) return;
+    setLoadingInbox(true);
+    try {
+      const res = await fetch(`/shares/inbox/${inboxCode}.json?t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setInboxNotes(data || []);
+      } else {
+        setInboxNotes([]);
+      }
+    } catch (e) {
+      console.error(e);
+      setInboxNotes([]);
+    }
+    setLoadingInbox(false);
+  }, [inboxCode]);
+
+  useEffect(() => {
+    if (activeTab === "inbox") {
+      fetchInbox();
+    }
+  }, [activeTab, fetchInbox]);
+
+  function playNote(note) {
+    if (playingNoteId === note.id) {
+      if (notePlaying) {
+        noteAudioRef.current?.pause();
+        setNotePlaying(false);
+      } else {
+        noteAudioRef.current?.play();
+        setNotePlaying(true);
+      }
+    } else {
+      setPlayingNoteId(note.id);
+      setNotePlaying(true);
+      if (noteAudioRef.current) {
+        noteAudioRef.current.src = note.audioDataUrl;
+        noteAudioRef.current.play().catch(e => console.error(e));
+      }
+    }
+  }
+
+  function handleCopyInbox() {
+    playTapeClick("light");
+    navigator.clipboard.writeText(`https://minitape.grafty.pro/inbox/${inboxCode}`);
+    alert("Inbox link copied!");
+  }
+
   return (
-    <Shell wide>
+    <Shell wide onShowTerms={onShowTerms}>
       <div className="flex flex-col items-center text-center mb-6 relative">
         <p className="text-xs text-low font-mono uppercase tracking-wide">Hey</p>
         <h1 className="font-display text-hi text-2xl" style={{ fontWeight: 600 }}>
@@ -1223,91 +1380,191 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
         </button>
       </div>
 
-      <button
-        onClick={onNew}
-        className="btn-amber w-full rounded-2xl py-4 mb-8 flex items-center justify-center gap-2 text-sm"
-      >
-        <Plus size={16} /> New Mixtape
-      </button>
-
-      <div className="mb-8">
-        <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">My Mixtapes</h3>
-        {loading && <p className="text-mid text-sm text-center">Loading…</p>}
-        {!loading && mixtapes.length === 0 && (
-          <div className="card rounded-2xl p-6 text-center">
-            <p className="text-mid text-sm">Nothing recorded yet. Your first mixtape takes about two minutes.</p>
-          </div>
-        )}
-        <div className="space-y-3">
-          {mixtapes.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => onOpenMixtape(m)}
-              className="card w-full rounded-2xl p-5 flex flex-col items-center justify-center gap-3 text-center hover:brightness-105 transition"
-            >
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
-                style={{ background: m.theme + "22", border: `1px solid ${m.theme}55` }}
-              >
-                <CoverIcon name={m.cover} size={20} style={{ color: m.theme }} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-hi text-sm font-medium truncate">{m.title}</p>
-                <p className="text-low text-xs font-mono mt-0.5">
-                  {m.clips.length} Clips · {formatTime(totalDuration(m.clips))} · {formatDate(m.createdAt)}
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-3 text-xs font-mono text-low">
-                <span className="accent-amber">{m.plays || 0} Plays</span>
-                <span>·</span>
-                <span className="flex items-center gap-1 uppercase text-[10px]">
-                  {m.privacy === "public" && <Globe size={10} />}
-                  {m.privacy === "unlisted" && <EyeOff size={10} />}
-                  {m.privacy === "password" && <Lock size={10} />}
-                  {m.privacy}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
+      {/* Tab Switcher */}
+      <div className="flex border-b mb-6" style={{ borderColor: "var(--border)" }}>
+        <button
+          onClick={() => { playTapeClick("light"); setActiveTab("tapes"); }}
+          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer"
+          style={{
+            color: activeTab === "tapes" ? "var(--amber)" : "var(--text-low)",
+            borderBottom: activeTab === "tapes" ? "2px solid var(--amber)" : "none",
+            outline: "none"
+          }}
+        >
+          My Tapes
+        </button>
+        <button
+          onClick={() => { playTapeClick("light"); setActiveTab("inbox"); }}
+          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer"
+          style={{
+            color: activeTab === "inbox" ? "var(--amber)" : "var(--text-low)",
+            borderBottom: activeTab === "inbox" ? "2px solid var(--amber)" : "none",
+            outline: "none"
+          }}
+        >
+          Anonymous Inbox
+        </button>
       </div>
 
-      {mixtapes.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">Shared Links</h3>
-          <div className="card rounded-2xl divide-y" style={{ borderColor: "var(--border)" }}>
-            {mixtapes.map((m) => (
-              <div key={m.id} className="flex flex-col items-center justify-center gap-2 px-4 py-3" style={{ borderColor: "var(--border)" }}>
-                <div className="flex items-center justify-center gap-2 min-w-0">
-                  <Link2 size={13} className="text-low shrink-0" />
-                  <span className="text-xs font-mono text-hi truncate">{m.title} · minitape.grafty.pro/m/{m.code}</span>
-                </div>
-                <button onClick={() => onCopy(m.code)} className="btn-ghost rounded-full px-3 py-1 text-[10px] font-mono flex items-center gap-1.5 shrink-0">
-                  <Copy size={11} /> Copy Link
-                </button>
+      <audio
+        ref={noteAudioRef}
+        onEnded={() => setNotePlaying(false)}
+        className="hidden"
+      />
+
+      {activeTab === "tapes" ? (
+        <>
+          <button
+            onClick={onNew}
+            className="btn-amber w-full rounded-2xl py-4 mb-8 flex items-center justify-center gap-2 text-sm"
+          >
+            <Plus size={16} /> New Mixtape
+          </button>
+
+          <div className="mb-8">
+            <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">My Mixtapes</h3>
+            {loading && <p className="text-mid text-sm text-center">Loading…</p>}
+            {!loading && mixtapes.length === 0 && (
+              <div className="card rounded-2xl p-6 text-center">
+                <p className="text-mid text-sm">Nothing recorded yet. Your first mixtape takes about two minutes.</p>
               </div>
-            ))}
+            )}
+            <div className="space-y-3">
+              {mixtapes.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => onOpenMixtape(m)}
+                  className="card w-full rounded-2xl p-5 flex flex-col items-center justify-center gap-3 text-center hover:brightness-105 transition"
+                >
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
+                    style={{ background: m.theme + "22", border: `1px solid ${m.theme}55` }}
+                  >
+                    <CoverIcon name={m.cover} size={20} style={{ color: m.theme }} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-hi text-sm font-medium truncate">{m.title}</p>
+                    <p className="text-low text-xs font-mono mt-0.5">
+                      {m.clips.length} Clips · {formatTime(totalDuration(m.clips))} · {formatDate(m.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 text-xs font-mono text-low">
+                    <span className="accent-amber">{m.plays || 0} Plays</span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1 uppercase text-[10px]">
+                      {m.privacy === "public" && <Globe size={10} />}
+                      {m.privacy === "unlisted" && <EyeOff size={10} />}
+                      {m.privacy === "password" && <Lock size={10} />}
+                      {m.privacy}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mixtapes.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">Shared Links</h3>
+              <div className="card rounded-2xl divide-y" style={{ borderColor: "var(--border)" }}>
+                {mixtapes.map((m) => (
+                  <div key={m.id} className="flex flex-col items-center justify-center gap-2 px-4 py-3" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex items-center justify-center gap-2 min-w-0">
+                      <Link2 size={13} className="text-low shrink-0" />
+                      <span className="text-xs font-mono text-hi truncate">{m.title} · minitape.grafty.pro/m/{m.code}</span>
+                    </div>
+                    <button onClick={() => onCopy(m.code)} className="btn-ghost rounded-full px-3 py-1 text-[10px] font-mono flex items-center gap-1.5 shrink-0">
+                      <Copy size={11} /> Copy Link
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="card rounded-2xl p-5 text-center">
+            <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">Listen with a code</h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                placeholder="6XKQ82"
+                maxLength={6}
+                className="flex-1 rounded-full px-4 py-2 text-sm font-mono text-center"
+              />
+              <button onClick={onOpenCode} className="btn-ghost rounded-full px-4">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            {error && <p className="text-xs mt-2 text-center" style={{ color: "var(--coral)" }}>{error}</p>}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-6">
+          <div className="card rounded-2xl p-5 text-center flex flex-col items-center">
+            <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3">Your Inbox Link</h3>
+            <p className="text-xs text-hi font-mono bg-panel2 p-3 rounded-xl w-full border break-all mb-4 leading-normal">
+              minitape.grafty.pro/inbox/{inboxCode}
+            </p>
+            <div className="flex gap-2 w-full">
+              <button onClick={handleCopyInbox} className="btn-amber flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5">
+                <Copy size={12} /> Copy Link
+              </button>
+              <button onClick={() => { playTapeClick("light"); setShowQR(!showQR); }} className="btn-ghost flex-1 rounded-full py-2.5 text-xs flex items-center justify-center gap-1.5">
+                <QrCode size={12} /> {showQR ? "Hide QR" : "Show QR"}
+              </button>
+            </div>
+          </div>
+
+          {showQR && (
+            <div className="card rounded-2xl p-5 text-center flex flex-col items-center fade-in">
+              <p className="text-xs text-low font-mono uppercase tracking-wider mb-3">Scan to send Voice Note</p>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`https://minitape.grafty.pro/inbox/${inboxCode}`)}`}
+                alt="Inbox QR Code"
+                className="w-40 h-40 border p-2 rounded-xl bg-white shadow-sm"
+              />
+            </div>
+          )}
+
+          <div>
+            <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">Anonymous Voice Notes</h3>
+            {loadingInbox && <p className="text-mid text-sm text-center">Loading notes...</p>}
+            {!loadingInbox && inboxNotes.length === 0 && (
+              <div className="card rounded-2xl p-6 text-center">
+                <p className="text-mid text-sm">No notes received yet. Share your inbox link to start receiving voice notes!</p>
+              </div>
+            )}
+            <div className="space-y-3">
+              {inboxNotes.map((note) => (
+                <div
+                  key={note.id}
+                  className="card rounded-2xl p-4 flex items-center justify-between gap-3 text-left border"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-hi text-sm font-medium truncate">{note.title}</p>
+                    <p className="text-low text-[10px] font-mono mt-0.5">
+                      {formatTime(note.duration)} · {formatDate(note.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => playNote(note)}
+                    className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: "var(--panel2)", border: "1px solid var(--border)", cursor: "pointer" }}
+                  >
+                    {playingNoteId === note.id && notePlaying ? (
+                      <Pause size={14} className="text-hi" />
+                    ) : (
+                      <Play size={14} className="text-hi" fill="currentColor" />
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
-
-      <div className="card rounded-2xl p-5 text-center">
-        <h3 className="text-xs text-low font-mono uppercase tracking-wide mb-3 text-center">Listen with a code</h3>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={codeInput}
-            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-            placeholder="6XKQ82"
-            maxLength={6}
-            className="flex-1 rounded-full px-4 py-2 text-sm font-mono text-center"
-          />
-          <button onClick={onOpenCode} className="btn-ghost rounded-full px-4">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-        {error && <p className="text-xs mt-2 text-center" style={{ color: "var(--coral)" }}>{error}</p>}
-      </div>
     </Shell>
   );
 }
@@ -1924,8 +2181,30 @@ function Builder({ draft, setDraft, onBack, onPublish }) {
               value={draft.password}
               onChange={(e) => setDraft((p) => ({ ...p, password: e.target.value }))}
               className="w-full rounded-xl px-4 py-2.5 text-sm mt-3 text-center"
+              style={{ boxSizing: "border-box" }}
             />
           )}
+        </div>
+
+        <div>
+          <p className="text-xs text-low font-mono uppercase tracking-wide mb-2 text-center">Dedication Message (Optional)</p>
+          <textarea
+            value={draft.description || ""}
+            onChange={(e) => setDraft((p) => ({ ...p, description: e.target.value }))}
+            placeholder="Write a personal note or dedication..."
+            className="w-full rounded-xl px-4 py-2.5 text-sm"
+            style={{
+              background: "var(--panel2)",
+              border: "1px solid var(--border)",
+              color: "var(--text-hi)",
+              outline: "none",
+              resize: "none",
+              height: "72px",
+              boxSizing: "border-box",
+              fontFamily: "inherit"
+            }}
+            maxLength={180}
+          />
         </div>
       </div>
 
@@ -2029,6 +2308,7 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef(null);
   const [activeSide, setActiveSide] = useState("A");
+  const [showJCard, setShowJCard] = useState(false);
 
   useEffect(() => {
     if (playingIndex !== null) {
@@ -2284,6 +2564,47 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
             );
           })}
         </div>
+        {/* J-Card Sleeve */}
+        <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+          <button
+            onClick={() => { playTapeClick("light"); setShowJCard(!showJCard); }}
+            className="btn-ghost w-full rounded-full py-2 text-xs flex items-center justify-center gap-1.5"
+            style={{ borderColor: mixtape.theme, color: mixtape.theme }}
+          >
+            {showJCard ? "Hide J-Card Sleeve" : "Flip Open J-Card Sleeve"}
+          </button>
+        </div>
+
+        {showJCard && (
+          <div className="card rounded-2xl p-5 mt-4 text-left fade-in" style={{ border: `1.5px dashed ${mixtape.theme}`, background: "#FAF8F5" }}>
+            <div className="text-center mb-4 border-b pb-3" style={{ borderColor: "var(--border)" }}>
+              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center" style={{ background: mixtape.theme + "15" }}>
+                <CoverIcon name={mixtape.cover} size={18} style={{ color: mixtape.theme }} />
+              </div>
+              <p className="text-[10px] font-mono text-low uppercase tracking-wider">A-Side / B-Side Liners</p>
+              <h3 className="font-display text-hi text-lg font-bold">{mixtape.title}</h3>
+            </div>
+            
+            {mixtape.description && (
+              <div className="mb-4 p-3 bg-panel rounded-xl text-left border" style={{ borderColor: "var(--border)", background: "var(--panel)" }}>
+                <p className="text-[10px] font-mono text-low uppercase tracking-wider mb-1">Dedication Note</p>
+                <p className="text-mid text-xs italic font-felt leading-relaxed" style={{ fontSize: "14px" }}>"{mixtape.description}"</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-mono text-low uppercase tracking-wider border-b pb-1">Track List</p>
+              {clips.map((c, i) => (
+                <div key={c.id} className="flex justify-between items-center text-xs font-mono py-1">
+                  <span className="text-mid truncate">
+                    {i + 1}. {c.title}
+                  </span>
+                  <span className="text-low shrink-0 ml-2">{formatTime(c.duration)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Shell>
   );
@@ -2314,6 +2635,312 @@ function Settings({ user, setUser, onBack, onSignOut }) {
         >
           <LogOut size={14} /> Sign out
         </button>
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  InboxSend (Anonymous Notes Recorder)                              */
+/* ------------------------------------------------------------------ */
+
+function InboxSend({ recipientName, inboxCode, onBack }) {
+  const [senderUser, setSenderUser] = useState(null);
+  const [recordState, setRecordState] = useState("idle"); // idle | recording | recorded
+  const [elapsed, setElapsed] = useState(0);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [recError, setRecError] = useState("");
+  const [replaying, setReplaying] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  async function startRecording() {
+    playTapeClick("heavy");
+    setRecError("");
+    chunksRef.current = [];
+    setElapsed(0);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setAudioUrl(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      mediaRecorder.start(100);
+      setRecordState("recording");
+      
+      timerRef.current = setInterval(() => {
+        setElapsed((prev) => {
+          if (prev >= 60) {
+            stopRecording();
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setRecError("Could not access microphone.");
+    }
+  }
+
+  function stopRecording() {
+    playTapeClick("heavy");
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setRecordState("recorded");
+  }
+
+  function deleteRecording() {
+    playTapeClick("light");
+    setAudioUrl(null);
+    setElapsed(0);
+    setRecordState("idle");
+    setReplaying(false);
+  }
+
+  function toggleReplay() {
+    playTapeClick("light");
+    if (!audioRef.current) return;
+    if (replaying) {
+      audioRef.current.pause();
+      setReplaying(false);
+    } else {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+      setReplaying(true);
+    }
+  }
+
+  async function handleSend() {
+    playTapeClick("heavy");
+    if (!audioUrl) return;
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/inbox/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientCode: inboxCode,
+          clip: {
+            id: genId(),
+            title: noteTitle.trim() || "Anonymous Note",
+            audioDataUrl: audioUrl,
+            duration: elapsed,
+            createdAt: new Date().toISOString()
+          }
+        })
+      });
+      if (response.ok) {
+        setSubmitted(true);
+      } else {
+        setRecError("Failed to send note.");
+      }
+    } catch {
+      setRecError("Server connection error.");
+    }
+    setSubmitting(false);
+  }
+
+  if (!senderUser) {
+    return (
+      <Login
+        onDone={(u) => setSenderUser(u)}
+        onBack={onBack}
+        title="Send Anonymous Tape"
+        description={`Sign in to send an anonymous note to ${recipientName || "user"}. Your identity remains 100% hidden.`}
+      />
+    );
+  }
+
+  if (submitted) {
+    return (
+      <Shell>
+        <div className="card rounded-3xl p-8 text-center flex flex-col items-center">
+          <div className="w-16 h-16 rounded-full bg-teal-500/10 text-teal-500 flex items-center justify-center mb-6" style={{ background: "rgba(13,148,136,0.1)" }}>
+            <Check size={32} />
+          </div>
+          <h2 className="font-display text-hi text-2xl mb-2 font-bold">Tape Sent!</h2>
+          <p className="text-mid text-sm mb-8 leading-relaxed">
+            Your voice note was delivered anonymously to <strong>{recipientName}</strong>.
+          </p>
+          <button onClick={onBack} className="btn-amber w-full rounded-full py-3 text-sm">
+            Done
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <BackBar onBack={onBack} title={`Record for ${recipientName}`} />
+      <div className="card rounded-3xl p-6 text-center flex flex-col items-center">
+        <p className="text-xs text-low font-mono uppercase tracking-wider mb-4">Anonymous Channel</p>
+
+        <div className="w-full max-w-[210px] aspect-[300/190] mx-auto mb-6">
+          <CassetteTape
+            title={noteTitle.trim() || "Anonymous"}
+            themeColor="var(--amber)"
+            isSpinning={recordState === "recording" || replaying}
+            progress={recordState === "recorded" ? elapsed / 60 : 0}
+            stickerFont="Felt-Tip"
+            side="A"
+          />
+        </div>
+
+        {recordState === "idle" && (
+          <>
+            <button
+              onClick={startRecording}
+              className="w-16 h-16 rounded-full flex items-center justify-center text-white mb-4 hover:scale-105 active:scale-95 transition border-none shadow"
+              style={{ background: "var(--coral)", cursor: "pointer" }}
+            >
+              <Mic size={24} />
+            </button>
+            <p className="text-hi text-sm font-medium">Tap to Record</p>
+            <p className="text-low text-xs font-mono mt-1">Maximum 60 seconds</p>
+          </>
+        )}
+
+        {recordState === "recording" && (
+          <>
+            <button
+              onClick={stopRecording}
+              className="w-16 h-16 rounded-full flex items-center justify-center text-white mb-4 animate-pulse hover:scale-105 active:scale-95 transition border-none shadow"
+              style={{ background: "var(--coral)", cursor: "pointer" }}
+            >
+              <Square size={20} fill="white" />
+            </button>
+            <p className="text-hi text-sm font-medium">Recording…</p>
+            <p className="text-low text-xs font-mono mt-1">{formatTime(elapsed)} / 1:00</p>
+          </>
+        )}
+
+        {recordState === "recorded" && (
+          <div className="w-full">
+            <audio
+              ref={audioRef}
+              src={audioUrl}
+              onEnded={() => setReplaying(false)}
+              className="hidden"
+            />
+            <div className="flex items-center justify-center gap-4 mb-5">
+              <button
+                onClick={toggleReplay}
+                className="btn-ghost rounded-full px-4 py-2 text-xs flex items-center gap-1.5"
+              >
+                {replaying ? <Pause size={13} /> : <Play size={13} fill="currentColor" />}
+                {replaying ? "Pause" : "Replay"}
+              </button>
+              <button
+                onClick={deleteRecording}
+                className="btn-ghost rounded-full px-4 py-2 text-xs flex items-center gap-1.5"
+                style={{ color: "var(--coral)" }}
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            </div>
+
+            <div className="w-full text-left mb-5">
+              <p className="text-[10px] font-mono text-low uppercase tracking-wider mb-2 text-center">Sticker Label Name</p>
+              <input
+                type="text"
+                placeholder="e.g. From a student, feedback"
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+                className="w-full rounded-xl px-4 py-2.5 text-sm text-center font-mono border"
+                style={{ background: "var(--panel2)", borderColor: "var(--border)", color: "var(--text-hi)", boxSizing: "border-box" }}
+                maxLength={24}
+              />
+            </div>
+
+            <button
+              onClick={handleSend}
+              disabled={submitting}
+              className="btn-amber w-full rounded-full py-3 text-sm font-bold"
+            >
+              {submitting ? "Sending..." : "Send Tape Anonymously"}
+            </button>
+          </div>
+        )}
+
+        {recError && <p className="text-xs text-red-500 mt-3">{recError}</p>}
+      </div>
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Terms and Privacy                                                  */
+/* ------------------------------------------------------------------ */
+
+function TermsAndPrivacy({ onBack }) {
+  return (
+    <Shell>
+      <BackBar onBack={onBack} title="Terms & Privacy" />
+      <div className="card rounded-3xl p-6 text-left space-y-4 max-h-[70vh] overflow-y-auto font-mono text-[11px] leading-relaxed">
+        <h2 className="text-xs font-display text-hi font-bold" style={{ letterSpacing: 'normal' }}>Terms of Service</h2>
+        <p>
+          Welcome to MInitape. By using this service to record, share, or send voice notes, you agree to:
+        </p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>Use the service only for lawful, personal purposes.</li>
+          <li>Not upload or send any harassing, abusive, threatening, or illegal audio content.</li>
+          <li>Acknowledge that server resources are provided as-is without warranties.</li>
+        </ul>
+
+        <h2 className="text-xs font-display text-hi font-bold mt-4" style={{ letterSpacing: 'normal' }}>Privacy Policy</h2>
+        <p>
+          We are committed to user privacy:
+        </p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li><strong>Authentication:</strong> Google authentication is used solely to verify human accounts and prevent platform spam/abuse.</li>
+          <li><strong>Anonymous Notes:</strong> When you send a voice note anonymously, your profile name, email, and credentials are completely withheld from the recipient. No identifier is saved in the shared notes payload.</li>
+          <li><strong>Data Retention:</strong> Mixtape audio payloads and inbox notes are saved on our secure VPS filesystem. You can delete your recordings at any time.</li>
+        </ul>
+
+        <p className="pt-2 border-t font-bold">
+          Contact: team@grafty.pro
+        </p>
       </div>
     </Shell>
   );
