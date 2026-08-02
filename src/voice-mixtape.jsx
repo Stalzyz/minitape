@@ -504,7 +504,7 @@ function Shell({ children, wide }) {
         .rounded-xl { border-radius: 0.75rem; }
         .rounded-lg { border-radius: 0.5rem; }
         
-        .font-display{ font-family:'Fraunces', serif; }
+        .font-display{ font-family:'Fraunces', serif; letter-spacing: -0.01em; }
         .font-mono{ font-family:'IBM Plex Mono', monospace; }
         .font-felt{ font-family:'Caveat', cursive; }
         .font-typewriter{ font-family:'Special Elite', monospace; }
@@ -515,6 +515,27 @@ function Shell({ children, wide }) {
         .btn-amber{ background:var(--amber); color:#FFFFFF; font-weight:600; transition:transform .15s ease, background .15s ease; border-style: none; cursor: pointer; }
         .btn-amber:hover{ background:var(--amber-deep); transform:translateY(-1px); }
         .btn-amber:active{ transform:translateY(0); }
+        .play-tape-large-btn {
+          width: 110px !important;
+          height: 110px !important;
+          border-radius: 9999px !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: center !important;
+          gap: 6px !important;
+          border: none !important;
+          cursor: pointer !important;
+          padding: 0 !important;
+          transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease !important;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 16px -6px rgba(0, 0, 0, 0.05) !important;
+        }
+        .play-tape-large-btn:hover {
+          transform: scale(1.04);
+        }
+        .play-tape-large-btn:active {
+          transform: scale(0.96);
+        }
         .btn-ghost{ background:var(--panel); border:1px solid var(--border); color:var(--text-mid); transition: border-color .15s ease, background .15s ease, color .15s ease; cursor: pointer; }
         .btn-ghost:hover{ border-color:var(--teal); color:var(--teal); background:rgba(13,148,136,0.03); }
         .text-hi{ color:var(--text-hi); }
@@ -1068,11 +1089,11 @@ function PublicIntro({ mixtape, onPlay }) {
 
         <button
           onClick={onPlay}
-          className="btn-amber w-32 h-32 rounded-full mx-auto flex flex-col items-center justify-center gap-1 shadow-lg hover:scale-105 active:scale-95 transition border-none"
+          className="play-tape-large-btn mx-auto"
           style={{ background: mixtape.theme, color: "var(--ink)" }}
         >
-          <Play size={40} fill="var(--ink)" className="ml-1" style={{ color: "var(--ink)" }} />
-          <span className="text-xs font-mono font-bold uppercase tracking-widest mt-1" style={{ color: "var(--ink)" }}>Play Tape</span>
+          <Play size={32} fill="var(--ink)" className="ml-1" style={{ color: "var(--ink)" }} />
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest" style={{ color: "var(--ink)" }}>Play Tape</span>
         </button>
       </div>
     </Shell>
