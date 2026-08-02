@@ -2681,6 +2681,28 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
   const [activeSide, setActiveSide] = useState("A");
   const [showJCard, setShowJCard] = useState(false);
 
+  // Free Web Audio API resources when player unmounts
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current;
+      if (audio) {
+        if (audio.__audioCtx) {
+          audio.__audioCtx.close().catch(() => {});
+          audio.__audioCtx = null;
+        }
+        if (audio.__wowOsc) {
+          try { audio.__wowOsc.stop(); } catch (e) {}
+          audio.__wowOsc = null;
+        }
+        if (audio.__flutterOsc) {
+          try { audio.__flutterOsc.stop(); } catch (e) {}
+          audio.__flutterOsc = null;
+        }
+        audio.__wowFlutterInitialized = false;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (playingIndex !== null) {
       const side = playingIndex <= 2 ? "A" : "B";
