@@ -895,7 +895,10 @@ export default function VoiceMixtapeApp() {
   const [view, setViewRaw] = useState("landing");
 
   const setView = useCallback((nextView) => {
-    const update = () => setViewRaw(nextView);
+    const update = () => {
+      setViewRaw(nextView);
+      localStorage.setItem("minitape_view", nextView);
+    };
     if (!document.startViewTransition) {
       update();
       return;
@@ -909,7 +912,39 @@ export default function VoiceMixtapeApp() {
       types: [direction]
     });
   }, []);
+
   const [user, setUser] = useState(null);
+
+  // Restore user session and view state on mount
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem("minitape_user");
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      }
+      const isDeepLink = window.location.pathname.startsWith("/m/") || window.location.pathname.startsWith("/inbox/");
+      if (!isDeepLink) {
+        const savedView = localStorage.getItem("minitape_view");
+        if (savedView) {
+          setViewRaw(savedView);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to restore state on mount:", e);
+    }
+  }, []);
+
+  // Sync user changes to localStorage
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem("minitape_user", JSON.stringify(user));
+      } else {
+        localStorage.removeItem("minitape_user");
+        localStorage.removeItem("minitape_view");
+      }
+    } catch (e) {}
+  }, [user]);
   const [mixtapes, setMixtapes] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [draft, setDraft] = useState(blankDraft());
@@ -1559,6 +1594,14 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
   const noteAudioRef = useRef(null);
 
   const inboxCode = getInboxCode(user?.email);
+  const seenCountKey = `seen_inbox_count:${inboxCode}`;
+  const [seenCount, setSeenCount] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem(seenCountKey) || "0", 10);
+    } catch (e) {
+      return 0;
+    }
+  });
 
   const fetchInbox = useCallback(async () => {
     if (!inboxCode) return;
@@ -1567,7 +1610,12 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
       const res = await fetch(`/shares/inbox/${inboxCode}.json?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
-        setInboxNotes(data || []);
+        const list = data || [];
+        setInboxNotes(list);
+        if (activeTab === "inbox") {
+          localStorage.setItem(seenCountKey, list.length.toString());
+          setSeenCount(list.length);
+        }
       } else {
         setInboxNotes([]);
       }
@@ -1576,7 +1624,34 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
       setInboxNotes([]);
     }
     setLoadingInbox(false);
-  }, [inboxCode]);
+  }, [inboxCode, activeTab, seenCountKey]);
+
+  useEffect(() => {
+    if (inboxCode) {
+      fetchInbox();
+      if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+  }, [inboxCode, fetchInbox]);
+
+  useEffect(() => {
+    if (activeTab === "inbox" && inboxNotes.length !== seenCount) {
+      localStorage.setItem(seenCountKey, inboxNotes.length.toString());
+      setSeenCount(inboxNotes.length);
+    }
+  }, [activeTab, inboxNotes.length, seenCount, seenCountKey]);
+
+  const unreadCount = Math.max(0, inboxNotes.length - seenCount);
+
+  useEffect(() => {
+    if (unreadCount > 0 && activeTab !== "inbox" && "Notification" in window && Notification.permission === "granted") {
+      new Notification("New Voice Notes", {
+        body: `You received ${unreadCount} new anonymous voice note${unreadCount > 1 ? "s" : ""}!`,
+        icon: "/favicon.svg"
+      });
+    }
+  }, [unreadCount, activeTab]);
 
   useEffect(() => {
     if (activeTab === "inbox") {
@@ -1649,14 +1724,22 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
         </button>
         <button
           onClick={() => { playTapeClick("light"); setActiveTab("inbox"); }}
-          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer"
+          className="flex-1 pb-3 text-xs font-mono font-bold uppercase tracking-wider transition bg-transparent border-none cursor-pointer flex items-center justify-center gap-1.5"
           style={{
             color: activeTab === "inbox" ? "var(--amber)" : "var(--text-low)",
             borderBottom: activeTab === "inbox" ? "2px solid var(--amber)" : "none",
             outline: "none"
           }}
         >
-          Anonymous Inbox
+          <span>Anonymous Inbox</span>
+          {unreadCount > 0 && (
+            <span
+              className="px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center justify-center animate-pulse"
+              style={{ background: "var(--coral)", minWidth: "16px" }}
+            >
+              {unreadCount}
+            </span>
+          )}
         </button>
       </div>
 
