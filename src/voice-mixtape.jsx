@@ -3,14 +3,33 @@ import {
   Mic, Square, Play, Pause, SkipForward, SkipBack, Copy, Share2, QrCode,
   Trash2, RotateCcw, ChevronRight, Settings as SettingsIcon, Plus, Link2,
   Lock, Globe, EyeOff, GripVertical, Check, ArrowLeft, LogOut, X,
-  Headphones, Sparkles
+  Headphones, Sparkles, Heart, Sun, Moon, Music, Smile, Disc
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-const COVERS = ["🎙️", "🌙", "☀️", "💌", "🎧", "✨", "🌊", "🔥"];
+const COVERS = ["Mic", "Headphones", "Sparkles", "Heart", "Sun", "Moon", "Music", "Smile"];
+
+const iconMap = {
+  Mic: Mic,
+  Headphones: Headphones,
+  Sparkles: Sparkles,
+  Heart: Heart,
+  Sun: Sun,
+  Moon: Moon,
+  Music: Music,
+  Smile: Smile
+};
+
+function CoverIcon({ name, size = 20, className = "", style = {} }) {
+  const IconComponent = iconMap[name];
+  if (!IconComponent) {
+    return <span className={className} style={{ fontSize: size - 4, display: "inline-flex", alignItems: "center", justifyContent: "center", ...style }}>{name || "🎧"}</span>;
+  }
+  return <IconComponent size={size} className={className} style={style} />;
+}
 const THEMES = ["#E8A548", "#4FAE9B", "#E2654A", "#7C9CE0", "#C97BD1"];
 const FONTS = ["Felt-Tip", "Retro Typewriter", "Ink Marker", "Clean Script"];
 const MIN_CLIPS = 3;
@@ -385,8 +404,9 @@ function Shell({ children, wide }) {
         .cassette-flip-container {
           perspective: 1000px;
           margin-bottom: 1.5rem;
-          width: 300px;
-          height: 190px;
+          width: 100%;
+          max-width: 300px;
+          aspect-ratio: 300 / 190;
         }
         .cassette-flipper {
           position: relative;
@@ -666,6 +686,7 @@ export default function VoiceMixtapeApp() {
   const [passwordUnlocked, setPasswordUnlocked] = useState(true);
   const [pwInput, setPwInput] = useState("");
   const [publicError, setPublicError] = useState("");
+  const [autoPlayPublic, setAutoPlayPublic] = useState(false);
 
   function flash(msg) {
     setToast(msg);
@@ -823,10 +844,6 @@ export default function VoiceMixtapeApp() {
       {view === "landing" && (
         <Landing
           onLogin={() => { playTapeClick("light"); setView("login"); }}
-          codeInput={codeInput}
-          setCodeInput={setCodeInput}
-          onOpenCode={() => openByCode(codeInput)}
-          error={publicError}
         />
       )}
       {view === "login" && (
@@ -908,15 +925,62 @@ export default function VoiceMixtapeApp() {
           setPwInput={setPwInput}
           onUnlock={() => {
             playTapeClick("heavy");
-            if (pwInput === publicMixtape?.password) setPasswordUnlocked(true);
-            else flash("Wrong password");
+            if (pwInput === publicMixtape?.password) {
+              setPasswordUnlocked(true);
+              setView("public-intro");
+            } else {
+              flash("Wrong password");
+            }
           }}
           onBack={() => {
             playTapeClick("light");
             window.history.pushState({}, "", "/");
             setView(user ? "dashboard" : "landing");
           }}
+          autoPlayOnMount={autoPlayPublic}
         />
+      )}
+      {view === "public-intro" && (
+        <PublicIntro
+          mixtape={publicMixtape}
+          onPlay={() => {
+            playTapeClick("heavy");
+            setAutoPlayPublic(true);
+            setView("public");
+          }}
+        />
+      )}
+      {view === "loading-public" && (
+        <Shell>
+          <div className="card rounded-3xl p-8 text-center flex flex-col items-center justify-center">
+            <div className="animate-spin mb-4" style={{ color: "var(--amber)" }}>
+              <Disc size={36} />
+            </div>
+            <p className="text-mid text-sm font-mono">Loading mixtape...</p>
+          </div>
+        </Shell>
+      )}
+      {view === "error-public" && (
+        <Shell>
+          <div className="card rounded-3xl p-8 text-center">
+            <Lock size={22} className="mx-auto mb-4 text-coral" />
+            <h2 className="font-display text-hi text-xl mb-2" style={{ fontWeight: 600 }}>
+              Mixtape not found
+            </h2>
+            <p className="text-mid text-xs mb-6">
+              The mixtape link might be broken or expired.
+            </p>
+            <button
+              onClick={() => {
+                window.history.pushState({}, "", "/");
+                setView("landing");
+              }}
+              className="btn-amber w-full rounded-full py-3 text-sm"
+            >
+              Go to Home Page
+            </button>
+          </div>
+        </Shell>
       )}
       {view === "settings" && (
         <Settings
@@ -935,18 +999,48 @@ export default function VoiceMixtapeApp() {
   );
 }
 
+/*  Public Intro / direct-play page                                     */
+/* ------------------------------------------------------------------ */
+
+function PublicIntro({ mixtape, onPlay }) {
+  return (
+    <Shell>
+      <div className="card rounded-3xl p-8 text-center flex flex-col items-center justify-center">
+        <div
+          className="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center"
+          style={{ background: mixtape.theme + "22", border: `1px solid ${mixtape.theme}` }}
+        >
+          <CoverIcon name={mixtape.cover} size={28} style={{ color: mixtape.theme }} />
+        </div>
+
+        <p className="text-xs text-low font-mono uppercase tracking-wider mb-2">Mixtape Received</p>
+        
+        <h1 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 700 }}>
+          {mixtape.title}
+        </h1>
+        <p className="text-mid text-sm mb-8">by {mixtape.author}</p>
+
+        <button
+          onClick={onPlay}
+          className="btn-amber w-32 h-32 rounded-full mx-auto flex flex-col items-center justify-center gap-1 shadow-lg hover:scale-105 active:scale-95 transition border-none"
+          style={{ background: mixtape.theme, color: "var(--ink)" }}
+        >
+          <Play size={40} fill="var(--ink)" className="ml-1" style={{ color: "var(--ink)" }} />
+          <span className="text-xs font-mono font-bold uppercase tracking-widest mt-1" style={{ color: "var(--ink)" }}>Play Tape</span>
+        </button>
+      </div>
+    </Shell>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Landing                                                             */
 /* ------------------------------------------------------------------ */
 
-function Landing({ onLogin, codeInput, setCodeInput, onOpenCode, error }) {
+function Landing({ onLogin }) {
   return (
     <Shell>
       <div className="card rounded-3xl p-8 text-center">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <img src="/favicon.svg" className="w-8 h-8 object-contain" alt="MInitape Logo" />
-          <span className="font-display text-hi text-xl font-bold tracking-wide">MInitape</span>
-        </div>
         <CassetteTape
           title="MINITAPE"
           themeColor="var(--amber)"
@@ -962,24 +1056,6 @@ function Landing({ onLogin, codeInput, setCodeInput, onOpenCode, error }) {
         <button onClick={onLogin} className="btn-amber w-full rounded-full py-3 text-sm">
           Login
         </button>
-
-        <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
-          <p className="text-xs text-low font-mono uppercase tracking-wide mb-3">Have a code?</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={codeInput}
-              onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-              placeholder="6XKQ82"
-              className="flex-1 rounded-full px-4 py-2 text-sm font-mono text-center"
-              maxLength={6}
-            />
-            <button onClick={onOpenCode} className="btn-ghost rounded-full px-4">
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          {error && <p className="text-xs mt-2" style={{ color: "var(--coral)" }}>{error}</p>}
-        </div>
       </div>
     </Shell>
   );
@@ -990,10 +1066,6 @@ function Landing({ onLogin, codeInput, setCodeInput, onOpenCode, error }) {
 /* ------------------------------------------------------------------ */
 
 function Login({ onDone, onBack }) {
-  const [showEmail, setShowEmail] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-
   return (
     <Shell>
       <BackBar onBack={onBack} />
@@ -1003,52 +1075,12 @@ function Login({ onDone, onBack }) {
         </h2>
         <p className="text-mid text-sm mb-6">Sign in to start recording.</p>
 
-        {!showEmail ? (
-          <div className="space-y-3">
-            <button
-              onClick={() => onDone({ name: "You", provider: "google" })}
-              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
-            >
-              Continue with Google
-            </button>
-            <button
-              onClick={() => onDone({ name: "You", provider: "apple" })}
-              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
-            >
-              Continue with Apple
-            </button>
-            <button
-              onClick={() => { playTapeClick("light"); setShowEmail(true); }}
-              className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
-            >
-              Continue with Email
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <input
-              type="text"
-              placeholder="Your name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl px-4 py-3 text-sm"
-            />
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl px-4 py-3 text-sm"
-            />
-            <button
-              disabled={!name.trim()}
-              onClick={() => onDone({ name: name.trim(), provider: "email" })}
-              className="btn-amber w-full rounded-full py-3 text-sm disabled:opacity-40"
-            >
-              Continue
-            </button>
-          </div>
-        )}
+        <button
+          onClick={() => onDone({ name: "You", provider: "google" })}
+          className="btn-ghost w-full rounded-full py-3 text-sm flex items-center justify-center gap-2"
+        >
+          Continue with Google
+        </button>
       </div>
     </Shell>
   );
@@ -1097,7 +1129,7 @@ function Dashboard({ user, mixtapes, loading, onNew, onOpenMixtape, onSettings, 
                 className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
                 style={{ background: m.theme + "22", border: `1px solid ${m.theme}55` }}
               >
-                {m.cover}
+                <CoverIcon name={m.cover} size={20} style={{ color: m.theme }} />
               </div>
               <div className="min-w-0">
                 <p className="text-hi text-sm font-medium truncate">{m.title}</p>
@@ -1698,7 +1730,7 @@ function Builder({ draft, setDraft, onBack, onPublish }) {
                   border: draft.cover === c ? "1px solid var(--amber)" : "1px solid var(--border)",
                 }}
               >
-                {c}
+                <CoverIcon name={c} size={16} style={{ color: draft.cover === c ? "var(--amber)" : "var(--text-mid)" }} />
               </button>
             ))}
           </div>
@@ -1822,7 +1854,7 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
           className="w-14 h-14 rounded-full mx-auto mb-5 flex items-center justify-center text-2xl"
           style={{ background: draft.theme + "22", border: `1px solid ${draft.theme}` }}
         >
-          {draft.cover}
+          <CoverIcon name={draft.cover} size={24} style={{ color: draft.theme }} />
         </div>
         <h2 className="font-display text-hi text-2xl mb-1" style={{ fontWeight: 600 }}>
           Published
@@ -1869,7 +1901,7 @@ function ShareScreen({ code, draft, onDashboard, onPreview, flash, shareUrl }) {
 /*  Public player                                                       */
 /* ------------------------------------------------------------------ */
 
-function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack }) {
+function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock, onBack, autoPlayOnMount }) {
   const [playingIndex, setPlayingIndex] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1882,6 +1914,13 @@ function PublicPlayer({ mixtape, passwordUnlocked, pwInput, setPwInput, onUnlock
       setActiveSide(side);
     }
   }, [playingIndex]);
+
+  useEffect(() => {
+    if (autoPlayOnMount && mixtape && mixtape.clips && mixtape.clips.length > 0) {
+      setPlayingIndex(0);
+      setIsPlaying(true);
+    }
+  }, [autoPlayOnMount, mixtape]);
 
   useEffect(() => {
     setPlayingIndex(null);
