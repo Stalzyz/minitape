@@ -371,11 +371,28 @@ function drawQr(canvas, code) {
 /* ------------------------------------------------------------------ */
 
 function Shell({ children, wide, onShowTerms }) {
+  const ua = typeof navigator !== "undefined" ? (navigator.userAgent || navigator.vendor || window.opera || "") : "";
+  const isInApp = /Instagram|FBAN|FBAV|TikTok|Line|Twitter/i.test(ua);
+
   return (
     <div
       style={{ fontFamily: "Inter, sans-serif" }}
       className="min-h-screen w-full flex flex-col items-center justify-center py-10 px-4 bg-grid"
     >
+      {isInApp && (
+        <div 
+          className="w-full max-w-sm mb-6 p-4 rounded-2xl border text-center font-mono text-[11px] leading-relaxed fade-in"
+          style={{ 
+            background: "rgba(225, 29, 72, 0.08)", 
+            borderColor: "var(--coral)", 
+            color: "var(--coral)",
+            boxSizing: "border-box" 
+          }}
+        >
+          ⚠️ <strong>Instagram Webview Restricted</strong><br/>
+          Microphone access is blocked inside Instagram. Tap the <strong>•••</strong> icon in the top-right and select <strong>Open in Safari</strong> (or Chrome) to record and play!
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@700&family=Special+Elite&family=Permanent+Marker&display=swap');
         :root{
