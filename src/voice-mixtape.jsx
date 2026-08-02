@@ -614,7 +614,7 @@ function CassetteTape({ title, themeColor, isSpinning, progress = 0, stickerFont
   else if (stickerFont === "Clean Script") fontClass = "font-script";
 
   return (
-    <div className="relative mx-auto mb-6 select-none" style={{ width: "300px", height: "190px" }}>
+    <div className="relative mx-auto select-none" style={{ width: "100%", height: "100%" }}>
       <style>{`
         @keyframes cassette-spin-cw {
           from { transform: rotate(0deg); }
@@ -1087,12 +1087,14 @@ function Landing({ onLogin }) {
   return (
     <Shell>
       <div className="card rounded-3xl p-8 text-center">
-        <CassetteTape
-          title="MINITAPE"
-          themeColor="var(--amber)"
-          isSpinning={false}
-          progress={0.25}
-        />
+        <div className="cassette-flip-container mx-auto">
+          <CassetteTape
+            title="MINITAPE"
+            themeColor="var(--amber)"
+            isSpinning={false}
+            progress={0.25}
+          />
+        </div>
         <h1 className="font-display text-hi text-3xl leading-tight mb-3" style={{ fontWeight: 600 }}>
           Record your voice.
         </h1>
