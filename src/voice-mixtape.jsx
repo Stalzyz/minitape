@@ -10,6 +10,32 @@ import {
 /*  helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+const PROFANITY_LIST = [
+  // English
+  "fuck", "shit", "bitch", "asshole", "bastard", "cunt", "dick", "pussy", "whore", "slut", "motherfucker",
+  // Spanish
+  "mierda", "puta", "puto", "cabron", "maricon", "joder", "coño",
+  // French
+  "merde", "putain", "salope", "connard", "chier",
+  // Hindi / Urdu / Punjabi
+  "chutiya", "madarchod", "behenchod", "bhadwa", "gaand", "laund", "loda", "kamine", "harami", "saala",
+  // Tamil / Malayalam / Telugu
+  "oolu", "punda", "sunni", "thevadiya", "poolu", "munda", "lanja"
+];
+
+function containsProfanity(text) {
+  if (!text) return false;
+  const cleanText = text.toLowerCase().replace(/[^a-zA-Z0-9\s]/g, " ");
+  const words = cleanText.split(/\s+/);
+  return words.some(word => 
+    PROFANITY_LIST.some(profane => {
+      if (word === profane) return true;
+      if (profane.length > 3 && word.includes(profane)) return true;
+      return false;
+    })
+  );
+}
+
 const COVERS = ["Mic", "Headphones", "Sparkles", "Heart", "Sun", "Moon", "Music", "Smile"];
 
 const iconMap = {
@@ -1959,6 +1985,8 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
   const replayIntervalRef = useRef(null);
   const vuLeftContainerRef = useRef(null);
   const vuRightContainerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const transcriptAccumulatorRef = useRef("");
 
   const currentClip = draft.clips[clipIndex];
 
@@ -2103,6 +2131,28 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
     playTapeClick("heavy");
     setRecError("");
     try {
+      // Speech recognition initialization for Option B
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const rec = new SpeechRecognition();
+          rec.continuous = true;
+          rec.interimResults = false;
+          transcriptAccumulatorRef.current = "";
+          rec.onresult = (event) => {
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) {
+                transcriptAccumulatorRef.current += " " + event.results[i][0].transcript;
+              }
+            }
+          };
+          rec.start();
+          recognitionRef.current = rec;
+        } catch (e) {
+          console.warn("Speech recognition error:", e);
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: { ideal: false },
@@ -2162,6 +2212,9 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
     clearInterval(timerRef.current);
     clearTimeout(autoStopRef.current);
     cancelAnimationFrame(rafRef.current);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -2172,6 +2225,16 @@ function RecordFlow({ draft, setDraft, clipIndex, setClipIndex, onCancel, onFini
   }
 
   function handleStop() {
+    const transcript = (transcriptAccumulatorRef.current || "").toLowerCase().trim();
+    if (containsProfanity(transcript)) {
+      setRecError("Profanity or abusive content detected. Please keep MInitape friendly!");
+      setRecordState("idle");
+      clearVUMeters();
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
+      return;
+    }
+
     const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
     const blob = new Blob(chunksRef.current, { type: mimeType });
     const reader = new FileReader();
@@ -3363,6 +3426,8 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
   const streamRef = useRef(null);
   const timerRef = useRef(null);
   const audioRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const transcriptAccumulatorRef = useRef("");
 
   useEffect(() => {
     return () => {
@@ -3379,6 +3444,28 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
     chunksRef.current = [];
     setElapsed(0);
     try {
+      // Speech recognition initialization for Option B
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const rec = new SpeechRecognition();
+          rec.continuous = true;
+          rec.interimResults = false;
+          transcriptAccumulatorRef.current = "";
+          rec.onresult = (event) => {
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) {
+                transcriptAccumulatorRef.current += " " + event.results[i][0].transcript;
+              }
+            }
+          };
+          rec.start();
+          recognitionRef.current = rec;
+        } catch (e) {
+          console.warn("Speech recognition error:", e);
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: { ideal: false },
@@ -3410,6 +3497,17 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
       };
 
       mediaRecorder.onstop = () => {
+        const transcript = (transcriptAccumulatorRef.current || "").toLowerCase().trim();
+        if (containsProfanity(transcript)) {
+          setRecError("Profanity or abusive content detected. Please keep MInitape friendly!");
+          setRecordState("idle");
+          setAudioUrl(null);
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+          }
+          return;
+        }
+
         const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const reader = new FileReader();
@@ -3441,6 +3539,9 @@ function InboxSend({ recipientName, inboxCode, onBack }) {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
