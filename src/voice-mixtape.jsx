@@ -1559,6 +1559,10 @@ function Landing({ onLogin, onShowTerms }) {
 
 function Login({ onDone, onBack, title = "Welcome", description = "Sign in to start recording.", onShowTerms }) {
   const googleBtnRef = useRef(null);
+  const [showCreds, setShowCreds] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     function parseJwt(token) {
@@ -1614,6 +1618,22 @@ function Login({ onDone, onBack, title = "Welcome", description = "Sign in to st
     }
   }, [onDone]);
 
+  const handleCredLogin = (e) => {
+    e.preventDefault();
+    setError("");
+    const trimmedEmail = email.trim().toLowerCase();
+    if ((trimmedEmail === "stalinkumar18@gmail.com" || trimmedEmail === "team@grafty.pro") && password === "MInitapeAdmin2026!") {
+      onDone({
+        name: trimmedEmail === "stalinkumar18@gmail.com" ? "Stalin Kumar" : "Grafty Team",
+        email: trimmedEmail,
+        picture: "",
+        provider: "credentials"
+      });
+    } else {
+      setError("Invalid administrative credentials");
+    }
+  };
+
   return (
     <Shell onShowTerms={onShowTerms}>
       <BackBar onBack={onBack} />
@@ -1623,7 +1643,63 @@ function Login({ onDone, onBack, title = "Welcome", description = "Sign in to st
         </h2>
         <p className="text-mid text-sm mb-6 text-center leading-relaxed">{description}</p>
 
-        <div ref={googleBtnRef} className="w-full flex justify-center min-h-[44px]" />
+        {!showCreds ? (
+          <div className="flex flex-col items-center gap-4 w-full">
+            <div ref={googleBtnRef} className="w-full flex justify-center min-h-[44px]" />
+            <button
+              onClick={() => { playTapeClick("light"); setShowCreds(true); }}
+              className="text-xs font-mono text-low hover:text-hi transition bg-transparent border-none cursor-pointer mt-2"
+            >
+              Sign in with credentials
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleCredLogin} className="w-full space-y-4">
+            <div>
+              <p className="text-[10px] font-mono text-low uppercase tracking-wider mb-1 text-left w-full">Email Address</p>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full rounded-xl px-4 py-2.5 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-low uppercase tracking-wider mb-1 text-left w-full">Password</p>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-xl px-4 py-2.5 text-xs font-mono"
+              />
+            </div>
+
+            {error && (
+              <p className="text-xs font-mono text-center" style={{ color: "var(--coral)" }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="btn-amber w-full rounded-full py-2.5 text-xs font-mono font-bold"
+            >
+              Verify & Enter
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { playTapeClick("light"); setShowCreds(false); setError(""); }}
+              className="text-[10px] font-mono text-low hover:text-hi transition w-full text-center bg-transparent border-none cursor-pointer mt-2"
+            >
+              Back to Google Sign In
+            </button>
+          </form>
+        )}
       </div>
     </Shell>
   );
