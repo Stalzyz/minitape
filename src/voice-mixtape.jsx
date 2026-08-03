@@ -399,14 +399,13 @@ function Shell({ children, wide, onShowTerms }) {
         <div 
           className="w-full max-w-sm mb-6 p-4 rounded-2xl border text-center font-mono text-[11px] leading-relaxed fade-in"
           style={{ 
-            background: "rgba(225, 29, 72, 0.08)", 
-            borderColor: "var(--coral)", 
-            color: "var(--coral)",
+            background: "rgba(232, 165, 72, 0.06)", 
+            borderColor: "var(--amber)", 
+            color: "var(--amber)",
             boxSizing: "border-box" 
           }}
         >
-          ⚠️ <strong>Instagram Webview Restricted</strong><br/>
-          Microphone access is blocked inside Instagram. Tap the <strong>•••</strong> icon in the top-right and select <strong>Open in Safari</strong> (or Chrome) to record and play!
+          For the best recording and playback experience, please open this link in your default browser (Safari or Chrome).
         </div>
       )}
       <style>{`
